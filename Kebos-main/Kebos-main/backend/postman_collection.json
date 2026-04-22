@@ -1,0 +1,28 @@
+{
+  "info": {
+    "name": "Cyber Threat Platform API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Model Upload",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": "model.pkl" }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8000/model_ingestor/upload",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["model_ingestor", "upload"]
+        }
+      }
+    }
+  ]
+}

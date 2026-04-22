@@ -1,0 +1,33 @@
+{
+  "name": "cyber-threat-platform",
+  "version": "1.0.0",
+  "description": "Real-time cyber threat prediction and mitigation platform with AI-powered analysis",
+  "main": "index.js",
+  "scripts": {
+    "start:backend": "cd backend && uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "start:frontend": "cd frontend && npm run dev",
+    "start:worker": "cd backend && celery -A main.celery_app worker --loglevel=info",
+    "build": "cd frontend && npm run build",
+    "test": "cd backend && python -m pytest",
+    "docker:build": "docker-compose -f docker-compose.ctp.yml build",
+    "docker:up": "docker-compose -f docker-compose.ctp.yml up -d",
+    "docker:down": "docker-compose -f docker-compose.ctp.yml down"
+  },
+  "keywords": ["cybersecurity", "threat-detection", "ai", "real-time", "streaming"],
+  "devDependencies": {
+    "@babel/core": "^7.28.0",
+    "@babel/preset-env": "^7.28.0",
+    "@babel/preset-react": "^7.27.1",
+    "@babel/preset-typescript": "^7.27.1",
+    "babel-loader": "^10.0.0",
+    "css-loader": "^7.1.2",
+    "html-webpack-plugin": "^5.6.3",
+    "react-scripts": "^5.0.1",
+    "style-loader": "^4.0.0",
+    "ts-loader": "^9.5.2",
+    "typescript": "^4.9.5",
+    "webpack": "^5.100.1",
+    "webpack-cli": "^6.0.1",
+    "webpack-dev-server": "^5.2.2"
+  }
+}

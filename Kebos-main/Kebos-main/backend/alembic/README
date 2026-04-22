@@ -1,0 +1,4 @@
+Alembic migrations for AI Governance Platform.
+
+- Use `alembic revision --autogenerate -m "init"` to create migrations.
+- Use `alembic upgrade head` to apply migrations.

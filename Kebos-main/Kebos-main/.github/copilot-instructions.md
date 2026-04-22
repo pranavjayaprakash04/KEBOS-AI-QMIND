@@ -1,0 +1,3 @@
+<!-- Use this file to provide workspace-specific custom instructions to Copilot. For more details, visit https://code.visualstudio.com/docs/copilot/copilot-customization#_use-a-githubcopilotinstructionsmd-file -->
+
+This is a modular CTP monorepo. Use FastAPI, Celery, SQLAlchemy, Pydantic, and React. Each backend module is in its own folder under `/backend`. Frontend is in `/frontend`. Use best practices for typing, docstrings, and extensibility. All services are API-first. Follow security and error handling best practices. Use OpenAPI docs for all APIs. Use LangChain for LLM integration. Use MLflow for model registry. Use Docker Compose for local dev.

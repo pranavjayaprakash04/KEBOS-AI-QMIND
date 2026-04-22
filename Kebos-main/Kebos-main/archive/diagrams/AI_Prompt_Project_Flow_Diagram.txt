@@ -1,0 +1,118 @@
+# AI PROMPT FOR KEBOS PROJECT FLOW DIAGRAM
+
+## Prompt Instructions:
+Create a comprehensive technical flow diagram for the KEBOS Cyber Threat Platform that visualizes the complete system architecture, data flow, and component interactions. The diagram should be detailed, professional, and suitable for technical presentations.
+
+## System Overview:
+KEBOS (Cyber Threat Platform) is an enterprise-grade cybersecurity solution with real-time threat detection, AI/ML analysis, and comprehensive security assessment capabilities.
+
+## Core Components to Include:
+
+### 1. Data Ingestion Layer
+- Network packet capture (1000+ packets/second)
+- SIEM integration endpoints
+- Threat intelligence feeds
+- Log aggregation systems
+- Apache Kafka message bus
+
+### 2. Processing & Analytics Layer
+- Apache Flink stream processing
+- TimescaleDB time-series storage
+- Complex event correlation engine
+- Geolocation enrichment pipeline
+- Data normalization services
+
+### 3. AI/ML Engine (Multi-Layer)
+**Layer 1: Real-Time Anomaly Detection**
+- Autoencoder neural networks
+- Statistical baseline analysis
+- <50ms detection latency
+- Anomaly scoring engine
+
+**Layer 2: Advanced Threat Prediction**
+- Fine-tuned Transformer models
+- MITRE ATT&CK framework mapping
+- Threat classification engine
+- Confidence scoring system
+
+**Layer 3: GenAI Assistant**
+- RAG (Retrieval-Augmented Generation) architecture
+- Vector database for similarity search
+- Natural language processing
+- Contextual threat analysis
+
+### 4. AttackSim Red-Teaming Module
+- MITRE ATT&CK for ML framework
+- Threat modeling engine
+- Attack simulation service (10+ techniques)
+- Campaign management system
+- Intelligence gathering module
+
+### 5. Security & Cryptography Layer
+- Zero-trust security model
+- mTLS inter-service communication
+- Post-Quantum Cryptography (PQC) implementation
+- JWT authentication system
+- RBAC authorization
+
+### 6. API & Integration Layer
+- RESTful API gateway
+- WebSocket real-time communication
+- SIEM integration APIs
+- Third-party security tools integration
+- Rate limiting and caching
+
+### 7. Frontend Dashboard
+- React 18 with TypeScript
+- Real-time threat visualization
+- Model management interface
+- Security analytics dashboards
+- Alert management system
+
+### 8. Storage & Persistence
+- PostgreSQL primary database
+- TimescaleDB for time-series data
+- Redis caching layer
+- Model artifact storage
+- Audit log storage
+
+## Data Flow Requirements:
+
+### Primary Flow:
+1. **Ingestion**: Network packets/SIEM events → Kafka → Processing
+2. **Analysis**: Raw data → AI/ML engines → Threat detection
+3. **Classification**: Threats → MITRE mapping → Risk scoring
+4. **Response**: Alerts → Dashboard → User actions
+5. **Storage**: Events → TimescaleDB → Historical analysis
+
+### Secondary Flows:
+- **Model Management**: Upload → Validation → Deployment → Monitoring
+- **Red-Teaming**: Intelligence → Campaign → Execution → Reporting
+- **GenAI**: User query → RAG retrieval → LLM processing → Response
+- **Audit**: All actions → Audit logger → Compliance reporting
+
+## Technical Specifications:
+- **Performance**: <50ms threat detection latency
+- **Throughput**: 1000+ packets/second, 500+ SIEM events/second
+- **Scalability**: Microservices architecture with horizontal scaling
+- **Security**: End-to-end encryption, PQC implementation
+- **Deployment**: Docker containers, Kubernetes orchestration
+
+## Visual Requirements:
+1. **Use professional diagram format** (Mermaid, Lucidchart, or similar)
+2. **Color coding**: Different colors for each layer/component type
+3. **Flow arrows**: Clear directional flow with labeled connections
+4. **Component grouping**: Logical grouping of related services
+5. **Performance metrics**: Include key metrics on relevant components
+6. **Security indicators**: Show encryption and security boundaries
+7. **Scalability indicators**: Show horizontal scaling points
+
+## Output Format:
+Please provide the flow diagram in Mermaid format with detailed annotations, followed by a brief explanation of the key flows and component interactions. The diagram should be comprehensive enough for enterprise technical presentations.
+
+## Additional Context:
+- Platform targets enterprise cybersecurity teams
+- Emphasizes real-time processing and AI-driven analysis
+- Designed for high-availability production environments
+- Integrates with existing enterprise security infrastructure
+- Supports compliance with SOC 2, GDPR, HIPAA standards

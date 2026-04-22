@@ -1,0 +1,304 @@
+version: '3.8'
+
+# Environment file validation
+x-environment: &environment
+  # Database Configuration
+  POSTGRES_USER: ${POSTGRES_USER:-aigp_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_here}
+  POSTGRES_HOST: ${POSTGRES_HOST:-db}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-aigp_database}
+  
+  # Application Configuration
+  SECRET_KEY: ${SECRET_KEY:-your-super-secret-key-here-change-this-in-production}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+  
+  # Redis Configuration
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  
+  # MLflow Configuration
+  MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+  
+  # Celery Configuration
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+  
+  # Logging Configuration
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  
+  # Security Configuration
+  ENABLE_CORS: ${ENABLE_CORS:-true}
+  ENABLE_RATE_LIMITING: ${ENABLE_RATE_LIMITING:-true}
+  MAX_FILE_SIZE: ${MAX_FILE_SIZE:-100MB}
+  
+  # Model Storage
+  MODEL_STORAGE_PATH: ${MODEL_STORAGE_PATH:-./uploaded_models}
+  ARTIFACT_STORAGE_PATH: ${ARTIFACT_STORAGE_PATH:-./artifacts}
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-aigp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_password_here}
+      POSTGRES_DB: ${POSTGRES_DB:-aigp_database}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aigp_user} -d ${POSTGRES_DB:-aigp_database}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Redis Cache and Message Broker
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # MLflow Model Registry
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    restart: unless-stopped
+    environment:
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      PIP_INSTALL_EXTRA_ARGS: psycopg2-binary
+    ports:
+      - "5000:5000"
+    command: >
+      sh -c "
+        pip install psycopg2-binary &&
+        mlflow server 
+          --host 0.0.0.0 
+          --port 5000 
+          --backend-store-uri postgresql://${POSTGRES_USER:-aigp_user}:${POSTGRES_PASSWORD:-secure_password_here}@db:5432/${POSTGRES_DB:-aigp_database}
+          --default-artifact-root /mlflow/artifacts
+          --workers 4
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - mlflow_data:/mlflow
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_healthy
+    environment:
+      <<: *environment
+    volumes:
+      - backend_logs:/app/logs
+      - backend_models:/app/uploaded_models
+      - backend_artifacts:/app/artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # Celery Worker
+  celeryworker:
+    build:
+      context: ./backend
+      target: celery
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *environment
+    volumes:
+      - backend_logs:/app/logs
+      - backend_models:/app/uploaded_models
+      - backend_artifacts:/app/artifacts
+    healthcheck:
+      test: ["CMD", "celery", "-A", "common.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # Celery Beat (Scheduler)
+  celerybeat:
+    build:
+      context: ./backend
+      target: celery
+    restart: unless-stopped
+    command: celery -A common.celery_app beat --loglevel=info
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *environment
+    volumes:
+      - backend_logs:/app/logs
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
+      REACT_APP_ENVIRONMENT: ${REACT_APP_ENVIRONMENT:-production}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Ollama LLM Service (Optional)
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+  # Nginx Reverse Proxy (Optional - for production)
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - aigp-network
+    security_opt:
+      - no-new-privileges:true
+    profiles:
+      - production
+
+# Networks
+networks:
+  aigp-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# Volumes
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  mlflow_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_models:
+    driver: local
+  backend_artifacts:
+    driver: local
+  ollama_data:
+    driver: local

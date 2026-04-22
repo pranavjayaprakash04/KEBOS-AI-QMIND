@@ -1,0 +1,295 @@
+version: '3.8'
+
+# Environment file validation for CTP
+x-environment: &environment
+  # Database Configuration - TimescaleDB
+  POSTGRES_USER: ${POSTGRES_USER:-ctp_user}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_ctp_password}
+  POSTGRES_HOST: ${POSTGRES_HOST:-timescaledb}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_DB: ${POSTGRES_DB:-ctp_database}
+  
+  # Application Configuration
+  SECRET_KEY: ${SECRET_KEY:-ctp-super-secret-key-change-in-production}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+  
+  # Redis Configuration
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  
+  # Kafka Configuration
+  KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+  KAFKA_RAW_PACKETS_TOPIC: ${KAFKA_RAW_PACKETS_TOPIC:-raw_packets}
+  KAFKA_SIEM_EVENTS_TOPIC: ${KAFKA_SIEM_EVENTS_TOPIC:-siem_events}
+  KAFKA_THREAT_ALERTS_TOPIC: ${KAFKA_THREAT_ALERTS_TOPIC:-threat_alerts}
+  
+  # Celery Configuration
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+  CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+  
+  # Logging Configuration
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  
+  # Security Configuration (Zero Trust)
+  ENABLE_CORS: ${ENABLE_CORS:-true}
+  ENABLE_RATE_LIMITING: ${ENABLE_RATE_LIMITING:-true}
+  ENABLE_MTLS: ${ENABLE_MTLS:-false}
+  
+  # AI/ML Configuration
+  LLM_API_ENDPOINT: ${LLM_API_ENDPOINT:-http://ollama:11434}
+  THREAT_DETECTION_THRESHOLD: ${THREAT_DETECTION_THRESHOLD:-0.7}
+
+services:
+  # TimescaleDB for time-series network data
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ctp_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secure_ctp_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ctp_database}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ctp_user} -d ${POSTGRES_DB:-ctp_database}"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Redis for caching and Celery
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Zookeeper for Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_logs:/var/lib/zookeeper/log
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Kafka for streaming data pipeline
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_LOG_RETENTION_HOURS: 24
+      KAFKA_LOG_RETENTION_BYTES: 1073741824
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Kafka UI for monitoring
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    ports:
+      - "9000:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: ctp-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # CTP Backend API
+  backend:
+    build:
+      context: ./backend
+      target: production
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      <<: *environment
+    volumes:
+      - backend_logs:/app/logs
+      - backend_models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # Celery Worker for background processing
+  celeryworker:
+    build:
+      context: ./backend
+      target: celery
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      <<: *environment
+    volumes:
+      - backend_logs:/app/logs
+      - backend_models:/app/models
+    healthcheck:
+      test: ["CMD", "celery", "-A", "common.celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # Frontend Dashboard
+  frontend:
+    build:
+      context: ./frontend
+      target: production
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000}
+      REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:8000}
+      REACT_APP_ENVIRONMENT: ${REACT_APP_ENVIRONMENT:-production}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+
+  # Ollama LLM for GenAI Assistant
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - ctp-network
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+# Networks
+networks:
+  ctp-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16
+
+# Volumes
+volumes:
+  timescaledb_data:
+    driver: local
+  redis_data:
+    driver: local
+  zookeeper_data:
+    driver: local
+  zookeeper_logs:
+    driver: local
+  kafka_data:
+    driver: local
+  backend_logs:
+    driver: local
+  backend_models:
+    driver: local
+  ollama_data:
+    driver: local

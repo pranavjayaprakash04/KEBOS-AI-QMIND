@@ -1,0 +1,219 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Custom Properties as per specification */
+:root {
+  /* Color Palette */
+  --color-primary-dark: #44404f;
+  --color-secondary-dark: #0e0b16;
+  --color-tertiary-dark: #25212b;
+  --color-quaternary: #35323e;
+  --color-light-accent: #e7dfdd;
+  --color-background-light: #f4f2f0;
+  --color-background-primary: #fbfaf9;
+  --color-success: #22c55e;
+  --color-error: #ef4444;
+  --color-text-primary: #000000;
+  --color-text-secondary: #ffffff;
+  
+  /* Component Colors */
+  --header-bg: var(--color-secondary-dark);
+  --sidebar-bg: var(--color-tertiary-dark);
+  --main-bg: var(--color-background-primary);
+  --card-bg: var(--color-background-light);
+  --border-color: var(--color-light-accent);
+  
+  /* Interactive States */
+  --hover-primary: var(--color-quaternary);
+  --active-primary: var(--color-primary-dark);
+  --focus-outline: var(--color-primary-dark);
+  
+  /* Status Indicators */
+  --status-success: var(--color-success);
+  --status-error: var(--color-error);
+  --status-success-icon: "✓";
+  --status-error-icon: "✗";
+}
+
+/* Global base styles */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--main-bg);
+  color: var(--color-text-primary);
+}
+
+/* Focus styles for accessibility */
+*:focus {
+  outline: 2px solid var(--focus-outline);
+  outline-offset: 2px;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background-light);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-quaternary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-dark);
+}
+
+/* Utility classes */
+@layer components {
+  .card {
+    @apply bg-background-light border border-light-accent rounded-lg shadow-card;
+  }
+  
+  .card-hover {
+    @apply card hover:shadow-card-hover transition-shadow duration-200;
+  }
+  
+  .btn-primary {
+    @apply bg-primary-dark text-text-secondary px-4 py-2 rounded-md font-medium hover:bg-quaternary transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-primary-dark focus:ring-offset-2;
+  }
+  
+  .btn-secondary {
+    @apply bg-quaternary text-text-secondary px-4 py-2 rounded-md font-medium hover:bg-primary-dark transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-quaternary focus:ring-offset-2;
+  }
+  
+  .btn-success {
+    @apply bg-success text-text-secondary px-4 py-2 rounded-md font-medium hover:bg-green-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-success focus:ring-offset-2;
+  }
+  
+  .btn-danger {
+    @apply bg-error text-text-secondary px-4 py-2 rounded-md font-medium hover:bg-red-600 transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-error focus:ring-offset-2;
+  }
+  
+  .input-field {
+    @apply w-full px-3 py-2 border border-quaternary rounded-md bg-background-primary text-text-primary placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-dark focus:border-transparent;
+  }
+  
+  .status-success::before {
+    content: var(--status-success-icon);
+    color: var(--status-success);
+    margin-right: 0.5rem;
+  }
+  
+  .status-error::before {
+    content: var(--status-error-icon);
+    color: var(--status-error);
+    margin-right: 0.5rem;
+  }
+  
+  .sidebar-nav-item {
+    @apply flex items-center px-4 py-3 text-text-secondary hover:bg-quaternary transition-colors duration-200 rounded-md mx-2 mb-1;
+  }
+  
+  .sidebar-nav-item.active {
+    @apply bg-primary-dark;
+  }
+  
+  .metric-card {
+    @apply card p-6 hover:shadow-card-hover transition-all duration-200;
+  }
+  
+  .loading-spinner {
+    @apply inline-block w-4 h-4 border-2 border-gray-300 border-t-primary-dark rounded-full animate-spin;
+  }
+}
+
+/* Animation classes */
+.fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+/* Chart container styles */
+.chart-container {
+  @apply w-full h-full;
+}
+
+.chart-container canvas {
+  @apply w-full h-full;
+}
+
+/* Responsive text sizing */
+@media (max-width: 640px) {
+  .text-responsive-lg {
+    @apply text-lg;
+  }
+  
+  .text-responsive-xl {
+    @apply text-xl;
+  }
+  
+  .text-responsive-2xl {
+    @apply text-xl;
+  }
+}
+
+@media (min-width: 641px) {
+  .text-responsive-lg {
+    @apply text-xl;
+  }
+  
+  .text-responsive-xl {
+    @apply text-2xl;
+  }
+  
+  .text-responsive-2xl {
+    @apply text-3xl;
+  }
+}
+
+/* Dark mode utilities */
+.dark-mode {
+  --main-bg: var(--color-secondary-dark);
+  --card-bg: var(--color-tertiary-dark);
+  --border-color: var(--color-quaternary);
+}
+
+.dark-mode body {
+  background-color: var(--main-bg);
+  color: var(--color-text-secondary);
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .chart-container {
+    break-inside: avoid;
+  }
+}

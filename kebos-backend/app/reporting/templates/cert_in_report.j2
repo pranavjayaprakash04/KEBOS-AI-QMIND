@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html><head><style>
+  body { font-family: Arial, sans-serif; font-size: 11pt; margin: 40px; }
+  h1 { color: #c00; } h2 { color: #333; border-bottom: 1px solid #ccc; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+  td, th { border: 1px solid #ccc; padding: 6px; text-align: left; }
+  .critical { color: red; font-weight: bold; }
+</style></head><body>
+<h1>CERT-In Incident Report</h1>
+<p><strong>Organisation:</strong> {{ organisation_name }}<br>
+<strong>Report Generated:</strong> {{ generated_at }}<br>
+<strong>Incident ID:</strong> {{ incident_id }}<br>
+<strong>Reporting Window:</strong> 6 hours from detection (CERT-In S.O. 1374(E))</p>
+<h2>1. Incident Details</h2>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Incident Type</td><td>{{ incident_type }}</td></tr>
+  <tr><td>Severity</td><td class="critical">{{ severity }}</td></tr>
+  <tr><td>Detection Time</td><td>{{ detection_time }}</td></tr>
+  <tr><td>Indicator</td><td>{{ indicator_value }}</td></tr>
+  <tr><td>Lead Category</td><td>{{ lead_category }}</td></tr>
+  <tr><td>Confidence Score</td><td>{{ confidence }}</td></tr>
+</table>
+<h2>2. Technical Description</h2><p>{{ description }}</p>
+<h2>3. Affected Systems</h2>
+<ul>{% for s in affected_systems %}<li>{{ s }}</li>{% endfor %}</ul>
+<h2>4. MITRE ATT&CK Techniques</h2>
+<ul>{% for t in mitre_techniques %}<li>{{ t }}</li>{% endfor %}</ul>
+<h2>5. Recommended Actions</h2>
+<ul>{% for a in recommended_actions %}<li>{{ a }}</li>{% endfor %}</ul>
+<h2>6. Digital Signature</h2>
+<p><strong>Algorithm:</strong> Dilithium-3 (NIST FIPS 204)<br>
+<strong>Signature:</strong> {{ dilithium_signature[:64] }}...<br>
+<strong>Key Reference:</strong> {{ pubkey_ref }}<br>
+<strong>Submitter:</strong> Kebos AI — Pynevera Technologies</p>
+</body></html>

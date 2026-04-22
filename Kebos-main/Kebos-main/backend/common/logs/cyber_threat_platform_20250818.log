@@ -1,0 +1,2 @@
+2025-08-18 00:13:13,376 - cyber_threat_platform - ERROR - log_error:68 - Error in test_component: Test error | {'error_type': 'ValueError'}
+2025-08-18 00:18:24,544 - cyber_threat_platform - ERROR - log_error:68 - Error in test_component: Test error | {'error_type': 'ValueError'}

@@ -1,0 +1,22 @@
+// .devcontainer/devcontainer.json
+{
+  "name": "AI Governance Platform DevContainer",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "backend",
+  "workspaceFolder": "/app",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.shell.linux": "/bin/bash"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-azuretools.vscode-docker",
+        "esbenp.prettier-vscode",
+        "msjsdiag.vscode-react-native",
+        "ms-toolsai.jupyter"
+      ]
+    }
+  },
+  "postCreateCommand": "pip install -r requirements.txt || true"
+}
