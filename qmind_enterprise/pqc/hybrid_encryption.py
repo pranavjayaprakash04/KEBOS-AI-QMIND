@@ -6,13 +6,19 @@ from cryptography.hazmat.primitives import hashes
 
 logger = logging.getLogger(__name__)
 
-# Import liboqs if available
-try:
-    import oqs
-    _LIBOQS_AVAILABLE = True
-except ImportError:
-    _LIBOQS_AVAILABLE = False
-    logger.warning("liboqs not available - Kyber-768 hybrid encryption disabled")
+# Check USE_REAL_PQC before attempting to import oqs
+USE_REAL_PQC = os.environ.get("USE_REAL_PQC", "false").lower() == "true"
+
+# Import liboqs if available and USE_REAL_PQC is true
+_LIBOQS_AVAILABLE = False
+if USE_REAL_PQC:
+    try:
+        import oqs
+        _LIBOQS_AVAILABLE = True
+    except ImportError:
+        logger.warning("liboqs not available - Kyber-768 hybrid encryption disabled")
+else:
+    logger.info("USE_REAL_PQC=false - skipping oqs import in hybrid_encryption")
 
 
 def generate_keypair() -> tuple[bytes, bytes]:

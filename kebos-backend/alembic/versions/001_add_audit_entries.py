@@ -8,8 +8,8 @@ from datetime import datetime
 import uuid
 
 
-revision = '001_add_audit_entries'
-down_revision = None
+revision = '009_add_audit_entries'
+down_revision = '008_add_analyst_feedback'
 branch_labels = None
 depends_on = None
 

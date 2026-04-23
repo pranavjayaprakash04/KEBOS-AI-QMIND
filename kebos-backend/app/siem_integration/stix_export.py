@@ -3,7 +3,7 @@ STIX 2.1 Exporter for Kebos AI SIEM Integration.
 Phase 4.3 - Exports IOCs as STIX 2.1 Indicators and Bundles.
 """
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import stix2
 

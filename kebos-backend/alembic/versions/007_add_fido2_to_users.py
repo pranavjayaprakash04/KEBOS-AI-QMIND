@@ -17,16 +17,9 @@ depends_on = None
 
 
 def upgrade():
-    # Add fido2_enabled column
-    op.add_column('users', sa.Column('fido2_enabled', sa.Boolean(), server_default='false', nullable=False))
-    
-    # Add fido2_credentials column (JSONB)
-    op.add_column('users', sa.Column('fido2_credentials', sa.JSON(), server_default='[]', nullable=True))
+    # Columns already added in base migration - no-op
+    pass
 
 
 def downgrade():
-    # Remove fido2_credentials column
-    op.drop_column('users', 'fido2_credentials')
-    
-    # Remove fido2_enabled column
-    op.drop_column('users', 'fido2_enabled')
+    pass

@@ -120,15 +120,15 @@ async def login(
 @router.post("/verify-totp")
 @limiter.limit("5/minute")
 async def verify_totp(
-    http_request: Request,
-    request: VerifyTotpRequest,
+    request: Request,
+    verify_request: VerifyTotpRequest,
     response: Response,
     auth_service: AuthService = Depends()
 ):
     """Verify TOTP code and issue full session cookie"""
     # Decode challenge token
     try:
-        payload = await auth_service.decode_challenge_token(request.challenge_token)
+        payload = await auth_service.decode_challenge_token(verify_request.challenge_token)
         user_id = payload["sub"]
         challenge_jti = payload["jti"]
     except Exception:
@@ -152,10 +152,10 @@ async def verify_totp(
     if not user_profile:
         # Try to get user from DB directly
         try:
-            db_pool = http_request.app.state.db_pool if hasattr(http_request.app.state, 'db_pool') else None
+            db_pool = request.app.state.db_pool if hasattr(request.app.state, 'db_pool') else None
             if db_pool:
                 totp_service = TOTPService()
-                verified = await totp_service.verify(int(user_id), request.totp_code, db_pool)
+                verified = await totp_service.verify(int(user_id), verify_request.totp_code, db_pool)
                 if not verified:
                     raise HTTPException(status_code=401, detail="Invalid TOTP code")
             else:
@@ -166,10 +166,10 @@ async def verify_totp(
     else:
         # Verify TOTP code
         try:
-            db_pool = http_request.app.state.db_pool if hasattr(http_request.app.state, 'db_pool') else None
+            db_pool = request.app.state.db_pool if hasattr(request.app.state, 'db_pool') else None
             if db_pool:
                 totp_service = TOTPService()
-                verified = await totp_service.verify(int(user_id), request.totp_code, db_pool)
+                verified = await totp_service.verify(int(user_id), verify_request.totp_code, db_pool)
                 if not verified:
                     raise HTTPException(status_code=401, detail="Invalid TOTP code")
         except Exception:
@@ -201,7 +201,7 @@ async def enable_totp(
 @router.post("/fido2/register/begin", response_model=Fido2RegisterBeginResponse)
 @limiter.limit("10/minute")
 async def fido2_register_begin(
-    http_request: Request,
+    request: Request,
     current_user: UserProfile = Depends(get_current_user)
 ):
     """Begin FIDO2 registration - generates WebAuthn registration options"""
@@ -243,8 +243,8 @@ async def fido2_register_begin(
 @router.post("/fido2/register/complete")
 @limiter.limit("10/minute")
 async def fido2_register_complete(
-    http_request: Request,
-    request: Fido2RegisterRequest,
+    request: Request,
+    fido2_request: Fido2RegisterRequest,
     current_user: UserProfile = Depends(get_current_user)
 ):
     """Complete FIDO2 registration - verifies and stores credential"""
@@ -267,7 +267,7 @@ async def fido2_register_complete(
     # Verify registration response
     try:
         verification = verify_registration_response(
-            credential=RegistrationCredential.parse_raw(request.credential),
+            credential=RegistrationCredential.parse_raw(fido2_request.credential),
             expected_challenge=challenge,
             expected_origin=f"https://{settings.FIDO2_RP_ID}",
             expected_rp_id=settings.FIDO2_RP_ID,
@@ -310,8 +310,8 @@ async def fido2_register_complete(
 @router.post("/fido2/authenticate/begin", response_model=Fido2AuthenticateBeginResponse)
 @limiter.limit("10/minute")
 async def fido2_authenticate_begin(
-    request: Fido2AuthenticateBeginRequest,
-    http_request: Request
+    fido2_request: Fido2AuthenticateBeginRequest,
+    request: Request
 ):
     """Begin FIDO2 authentication - generates authentication options"""
     from webauthn import generate_authentication_options, options_to_json
@@ -324,7 +324,7 @@ async def fido2_authenticate_begin(
     redis_client = redis.from_url(settings.REDIS_URL)
 
     # Get user credentials
-    creds_data = await redis_client.get(f"fido2:creds:{request.username}")
+    creds_data = await redis_client.get(f"fido2:creds:{fido2_request.username}")
     if not creds_data:
         raise HTTPException(status_code=400, detail="No FIDO2 credentials registered for this user")
 
@@ -344,9 +344,9 @@ async def fido2_authenticate_begin(
     # Store challenge in Redis with 5-minute TTL
     challenge = options["challenge"]
     await redis_client.setex(
-        f"fido2:auth:{request.username}",
+        f"fido2:auth:{fido2_request.username}",
         300,
-        json.dumps({"challenge": challenge, "username": request.username})
+        json.dumps({"challenge": challenge, "username": fido2_request.username})
     )
 
     return {"options": options}
@@ -355,9 +355,9 @@ async def fido2_authenticate_begin(
 @router.post("/fido2/authenticate/complete")
 @limiter.limit("10/minute")
 async def fido2_authenticate_complete(
-    request: Fido2AuthenticateRequest,
+    fido2_request: Fido2AuthenticateRequest,
     response: Response,
-    http_request: Request,
+    request: Request,
     auth_service: AuthService = Depends()
 ):
     """Complete FIDO2 authentication - verifies and issues session cookie"""
@@ -367,7 +367,7 @@ async def fido2_authenticate_complete(
     redis_client = redis.from_url(settings.REDIS_URL)
 
     # Retrieve challenge from Redis
-    challenge_data = await redis_client.get(f"fido2:auth:{request.username}")
+    challenge_data = await redis_client.get(f"fido2:auth:{fido2_request.username}")
     if not challenge_data:
         raise HTTPException(status_code=400, detail="Authentication expired or invalid")
 
@@ -375,17 +375,17 @@ async def fido2_authenticate_complete(
     challenge = challenge_json["challenge"]
 
     # Clean up challenge
-    await redis_client.delete(f"fido2:auth:{request.username}")
+    await redis_client.delete(f"fido2:auth:{fido2_request.username}")
 
     # Get user credentials
-    creds_data = await redis_client.get(f"fido2:creds:{request.username}")
+    creds_data = await redis_client.get(f"fido2:creds:{fido2_request.username}")
     if not creds_data:
         raise HTTPException(status_code=400, detail="No FIDO2 credentials found")
 
     creds_list = json.loads(creds_data)
 
     # Find matching credential
-    credential_id = request.credential.get("id")
+    credential_id = fido2_request.credential.get("id")
     matching_cred = None
     for cred in creds_list:
         if cred["credential_id"] == credential_id:
@@ -398,7 +398,7 @@ async def fido2_authenticate_complete(
     # Verify authentication response
     try:
         verification = verify_authentication_response(
-            credential=AuthenticationCredential.parse_raw(request.credential),
+            credential=AuthenticationCredential.parse_raw(fido2_request.credential),
             expected_challenge=challenge,
             expected_rp_id=settings.FIDO2_RP_ID,
             expected_origin=f"https://{settings.FIDO2_RP_ID}",
@@ -438,8 +438,8 @@ async def fido2_authenticate_complete(
 @router.post("/emergency-rotation")
 @limiter.limit("5/minute")
 async def emergency_rotation(
-    http_request: Request,
-    request: EmergencyRotationRequest,
+    request: Request,
+    emergency_request: EmergencyRotationRequest,
     current_user: UserProfile = Depends(get_current_user)
 ):
     """
@@ -458,7 +458,7 @@ async def emergency_rotation(
     vault_breach = VaultBreachResponse()
     result = await vault_breach.emergency_rotation(
         initiated_by=str(current_user.id),
-        reason=request.reason
+        reason=emergency_request.reason
     )
 
     return {
@@ -473,7 +473,7 @@ async def emergency_rotation(
 @router.get("/me")
 @limiter.limit("100/minute")
 async def get_me(
-    http_request: Request,
+    request: Request,
     current_user: UserProfile = Depends(get_current_user)
 ):
     """Get current user from HttpOnly cookie"""
@@ -483,9 +483,8 @@ async def get_me(
 @router.post("/logout")
 @limiter.limit("100/minute")
 async def logout(
-    http_request: Request,
-    response: Response,
     request: Request,
+    response: Response,
     current_user: UserProfile = Depends(get_current_user),
     auth_service: AuthService = Depends()
 ):
@@ -506,8 +505,8 @@ async def logout(
     return {"message": "Logged out successfully"}
 
 
-@router.post("/security/emergency-rotation", response_model=EmergencyRotationResponse)
-async def emergency_rotation(
+@router.post("/security/emergency-rotation")
+async def emergency_rotation_security(
     request: EmergencyRotationRequest,
     x_fido2_assertion: Optional[str] = Header(None, alias="X-FIDO2-Assertion"),
     current_user: UserProfile = Depends(get_current_user)

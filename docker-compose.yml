@@ -7,6 +7,8 @@ services:
       - frontend-net
     restart: unless-stopped
     command: tunnel run
+    profiles:
+      - disabled  # Disabled for demo - requires tunnel ID configuration
 
   kebos-backend:
     build: ./kebos-backend
@@ -20,11 +22,13 @@ services:
       - postgres
       - redis
       - vault
+      - kafka
     environment:
       - DATABASE_URL=postgresql://kebos:kebos_pass@postgres:5432/kebos
       - REDIS_URL=redis://redis:6379
       - VAULT_ADDR=http://vault:8200
       - VAULT_TOKEN=${VAULT_TOKEN}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
     volumes:
       - ./kebos-backend/data:/app/data:ro   # GeoIP database (read-only)
     deploy:
@@ -52,16 +56,15 @@ services:
     environment:
       - DATABASE_URL=postgresql://kebos:kebos_pass@postgres:5432/kebos
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - USE_REAL_PQC=true
+      - USE_REAL_PQC=false
+      - LD_LIBRARY_PATH=/usr/local/lib
     deploy:
       resources:
         limits:
           memory: 1G
           cpus: '2.0'
-    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
-    read_only: true
     tmpfs:
       - /tmp
 
@@ -82,10 +85,8 @@ services:
         limits:
           memory: 1500M
           cpus: '2.0'
-    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
-    read_only: true
     tmpfs:
       - /var/run/postgresql
 
@@ -213,9 +214,6 @@ services:
         limits:
           memory: 256M
           cpus: '0.5'
-    user: "1000:1000"
-    security_opt:
-      - no-new-privileges:true
 
 networks:
   frontend-net:

@@ -7,7 +7,7 @@ Endpoints for endpoint telemetry:
 - POST /api/v1/vuln/import - Nessus/OpenVAS XML import
 """
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Xml
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from app.auth.dependencies import get_current_user
 from app.auth.services import UserProfile

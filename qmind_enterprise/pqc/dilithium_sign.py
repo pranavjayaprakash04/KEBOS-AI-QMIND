@@ -1,14 +1,21 @@
+import os
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Import liboqs if available
-try:
-    import oqs
-    _LIBOQS_AVAILABLE = True
-except ImportError:
-    _LIBOQS_AVAILABLE = False
-    logger.warning("liboqs not available - Dilithium-3 signing disabled")
+# Check USE_REAL_PQC before attempting to import oqs
+USE_REAL_PQC = os.environ.get("USE_REAL_PQC", "false").lower() == "true"
+
+# Import liboqs if available and USE_REAL_PQC is true
+_LIBOQS_AVAILABLE = False
+if USE_REAL_PQC:
+    try:
+        import oqs
+        _LIBOQS_AVAILABLE = True
+    except ImportError:
+        logger.warning("liboqs not available - Dilithium-3 signing disabled")
+else:
+    logger.info("USE_REAL_PQC=false - skipping oqs import in dilithium_sign")
 
 
 def generate_keypair() -> tuple[bytes, bytes]:

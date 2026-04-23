@@ -18,6 +18,9 @@ RUN pip install --no-cache-dir -e .
 # Copy application code
 COPY --chown=kebos:kebos . .
 
+# Copy alembic.ini for migrations
+COPY --chown=kebos:kebos alembic.ini /app/
+
 # Switch to non-root user
 USER kebos
 

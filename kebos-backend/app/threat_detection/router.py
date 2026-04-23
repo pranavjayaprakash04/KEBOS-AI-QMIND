@@ -205,17 +205,17 @@ async def list_categories(current_user: UserProfile = Depends(get_current_user))
 @router.post("/feedback/correction")
 @limiter.limit("60/minute")
 async def submit_correction(
+    request: Request,
     indicator_value: str = Body(...),
     predicted_category: str = Body(...),
     corrected_category: str = Body(...),
-    http_request: Request = None,
     current_user: UserProfile = Depends(get_current_user)
 ):
     """Analyst corrects a QMind classification — feeds the retraining loop."""
     # Publish to analyst.feedback Kafka topic
     from app.threat_detection.kafka_producer import ThreatIndicatorPublisher
-    if hasattr(http_request.app.state, 'threat_publisher'):
-        await http_request.app.state.threat_publisher.publish_feedback({
+    if hasattr(request.app.state, 'threat_publisher'):
+        await request.app.state.threat_publisher.publish_feedback({
             "indicator_value": indicator_value,
             "predicted_category": predicted_category,
             "corrected_category": corrected_category,

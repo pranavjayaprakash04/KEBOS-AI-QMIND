@@ -75,15 +75,22 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager to start/stop Kafka consumer"""
     # Startup
     logger.info("Starting QMind Enterprise API")
-    consumer = await get_consumer()
-    app.state.consumer = consumer
     app.state.scorer = SignalScorer()
+    
+    # Try to start Kafka consumer, but don't fail if it's unavailable
+    try:
+        consumer = await get_consumer()
+        app.state.consumer = consumer
+        logger.info("Kafka consumer started successfully")
+    except Exception as e:
+        logger.warning(f"Kafka consumer startup failed (continuing without Kafka): {e}")
+        app.state.consumer = None
     
     yield
     
     # Shutdown
     logger.info("Shutting down QMind Enterprise API")
-    if hasattr(app.state, 'consumer'):
+    if hasattr(app.state, 'consumer') and app.state.consumer:
         await app.state.consumer.stop()
 
 

@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     ninja-build \
     git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Build liboqs from source

@@ -101,6 +101,11 @@ class DependencyHealthMonitor:
             silent_fail=False  # Vault is critical for secrets
         )
         
+        self._degradation_policies["cloudflare"] = DegradationPolicy(
+            name="cloudflare",
+            silent_fail=True  # Cloudflare is optional, direct-to-origin fallback
+        )
+        
         self._degradation_policies["redis"] = DegradationPolicy(
             name="redis",
             silent_fail=True  # Redis can fail silently, fall back to in-memory
@@ -153,23 +158,25 @@ class DependencyHealthMonitor:
     async def _check_all_dependencies(self):
         """Check health of all registered dependencies and apply degradation policies"""
         for dep_name in self._degradation_policies.keys():
-            previous_status = self._health_status.get(dep_name, DependencyStatus.HEALTHY)
+            previous_status = self._health_status.get(dep_name)
             status = await self._check_dependency(dep_name)
             self._health_status[dep_name] = status
+            
+            # Skip policy application on first check (when previous_status is None)
+            if previous_status is None:
+                continue
             
             # Apply degradation policy on status change
             if status != previous_status:
                 if status == DependencyStatus.DOWN:
                     self._apply_degradation_policy(dep_name)
+                    policy = self._degradation_policies[dep_name]
+                    if not policy.silent_fail:
+                        logger.error(f"Critical dependency {dep_name} is DOWN")
+                    else:
+                        logger.warning(f"Dependency {dep_name} is DOWN, using fallback")
                 elif previous_status == DependencyStatus.DOWN and status == DependencyStatus.HEALTHY:
                     self._restore_from_degradation(dep_name)
-            
-            if status == DependencyStatus.DOWN:
-                policy = self._degradation_policies[dep_name]
-                if not policy.silent_fail:
-                    logger.error(f"Critical dependency {dep_name} is DOWN")
-                else:
-                    logger.warning(f"Dependency {dep_name} is DOWN, using fallback")
     
     async def _check_dependency(self, dep_name: str) -> DependencyStatus:
         """Check health of a specific dependency"""
@@ -215,12 +222,14 @@ class DependencyHealthMonitor:
     async def _check_kafka(self) -> DependencyStatus:
         """Check Kafka health"""
         try:
-            # Try to connect to Kafka
-            response = await self._client.get(f"http://kafka:9092")
-            if response.status_code == 200:
-                return DependencyStatus.HEALTHY
-            return DependencyStatus.DOWN
-        except Exception:
+            # Kafka doesn't speak HTTP - check if it's accepting connections via aiokafka
+            from aiokafka import AIOKafkaProducer
+            producer = AIOKafkaProducer(bootstrap_servers="kafka:9092")
+            await producer.start()
+            await producer.stop()
+            return DependencyStatus.HEALTHY
+        except Exception as e:
+            logger.debug(f"Kafka health check failed: {e}")
             return DependencyStatus.DOWN
     
     async def _check_qmind(self) -> DependencyStatus:
@@ -236,21 +245,26 @@ class DependencyHealthMonitor:
     async def _check_vault(self) -> DependencyStatus:
         """Check Vault health"""
         try:
-            response = await self._client.get(f"http://{settings.VAULT_ADDR}/v1/sys/health")
+            # Vault health endpoint doesn't require authentication
+            response = await self._client.get(f"http://vault:8200/v1/sys/health")
             if response.status_code == 200:
                 return DependencyStatus.HEALTHY
             return DependencyStatus.DOWN
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Vault health check failed: {e}")
             return DependencyStatus.DOWN
     
     async def _check_redis(self) -> DependencyStatus:
         """Check Redis health"""
         try:
-            response = await self._client.get(f"http://redis:6379/ping")
-            if response.status_code == 200:
-                return DependencyStatus.HEALTHY
-            return DependencyStatus.DOWN
-        except Exception:
+            # Redis doesn't speak HTTP - use redis-py
+            import redis.asyncio as redis
+            r = redis.Redis(host="redis", port=6379, socket_connect_timeout=2)
+            await r.ping()
+            await r.close()
+            return DependencyStatus.HEALTHY
+        except Exception as e:
+            logger.debug(f"Redis health check failed: {e}")
             return DependencyStatus.DOWN
     
     async def _check_abuseipdb(self) -> DependencyStatus:
