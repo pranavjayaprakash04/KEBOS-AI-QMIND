@@ -1,0 +1,241 @@
+version: '3.8'
+
+services:
+  cloudflare-tunnel:
+    image: cloudflare/cloudflared:latest
+    networks:
+      - frontend-net
+    restart: unless-stopped
+    command: tunnel run
+
+  kebos-backend:
+    build: ./kebos-backend
+    ports:
+      - "8000:8000"
+    networks:
+      - frontend-net
+      - app-net
+      - data-net
+    depends_on:
+      - postgres
+      - redis
+      - vault
+    environment:
+      - DATABASE_URL=postgresql://kebos:kebos_pass@postgres:5432/kebos
+      - REDIS_URL=redis://redis:6379
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=${VAULT_TOKEN}
+    volumes:
+      - ./kebos-backend/data:/app/data:ro   # GeoIP database (read-only)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  qmind:
+    build: ./qmind_enterprise
+    ports:
+      - "8001:8001"
+    networks:
+      - app-net
+      - data-net
+    depends_on:
+      - postgres
+      - kafka
+    environment:
+      - DATABASE_URL=postgresql://kebos:kebos_pass@postgres:5432/kebos
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - USE_REAL_PQC=true
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.0'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    networks:
+      - data-net
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=kebos
+      - POSTGRES_USER=kebos
+      - POSTGRES_PASSWORD=kebos_pass
+    deploy:
+      resources:
+        limits:
+          memory: 1500M
+          cpus: '2.0'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /var/run/postgresql
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app-net
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    ports:
+      - "9092:9092"
+    networks:
+      - data-net
+    depends_on:
+      - zookeeper
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    ports:
+      - "2181:2181"
+    networks:
+      - data-net
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+      - ZOOKEEPER_TICK_TIME=2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+
+  influxdb:
+    image: influxdb:2.7
+    ports:
+      - "8086:8086"
+    networks:
+      - data-net
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=admin
+      - DOCKER_INFLUXDB_INIT_PASSWORD=admin_password
+      - DOCKER_INFLUXDB_INIT_ORG=kebos
+      - DOCKER_INFLUXDB_INIT_BUCKET=metrics
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    networks:
+      - app-net
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CONTAINERS: "1"
+      NETWORKS: "1"
+      POST: "1"
+      VOLUMES: "0"
+      AUTH: "0"
+      SECRETS: "0"
+      EXEC: "0"
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 64m
+    cpus: "0.1"
+    restart: unless-stopped
+
+  vault:
+    image: hashicorp/vault:1.15
+    ports:
+      - "8200:8200"
+    networks:
+      - app-net
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=dev-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault_data:/vault/data
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  frontend-net:
+    driver: bridge
+    internal: false
+  app-net:
+    driver: bridge
+    internal: true
+  data-net:
+    driver: bridge
+    internal: true
+  kebos_deception_net:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+  zookeeper_data:
+  zookeeper_log:
+  influxdb_data:
+  vault_data:
