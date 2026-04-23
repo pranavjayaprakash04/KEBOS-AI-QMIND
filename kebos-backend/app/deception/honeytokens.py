@@ -56,6 +56,35 @@ class HoneytokenManager:
     def __init__(self, db_pool: asyncpg.Pool):
         self.db_pool = db_pool
         self.egress_client = get_egress_client()
+        self._honeytoken_cache = {}  # In-memory cache: {token_value: Honeytoken}
+        self._cache_loaded = False
+    
+    async def _load_cache(self):
+        """Load active honeytokens into memory cache"""
+        if self._cache_loaded:
+            return
+        
+        async with self.db_pool.acquire() as conn:
+            active_tokens = await conn.fetch("""
+                SELECT id, tenant_id, token_type, value, description, deployed_at
+                FROM honeytokens
+                WHERE is_active = true
+            """)
+        
+        for token_row in active_tokens:
+            honeytoken = Honeytoken(
+                id=token_row["id"],
+                tenant_id=token_row["tenant_id"],
+                token_type=token_row["token_type"],
+                value=token_row["value"],
+                description=token_row["description"],
+                deployed_at=token_row["deployed_at"],
+                is_active=True
+            )
+            self._honeytoken_cache[honeytoken.value] = honeytoken
+        
+        self._cache_loaded = True
+        logger.info(f"Loaded {len(self._honeytoken_cache)} honeytokens into cache")
     
     async def create_honeytoken(
         self,
@@ -94,6 +123,9 @@ class HoneytokenManager:
                 is_active=row["is_active"]
             )
             
+            # Add to cache
+            self._honeytoken_cache[honeytoken.value] = honeytoken
+            
             logger.info(f"Created honeytoken {honeytoken.id} ({token_type.value}) for tenant {tenant_id}")
             return honeytoken
     
@@ -106,6 +138,7 @@ class HoneytokenManager:
         """
         Check if request contains any honeytokens.
         Called in main.py middleware - checks every request.
+        Uses in-memory cache to avoid DB query on every request.
         
         Args:
             request_body: Request body bytes
@@ -115,6 +148,9 @@ class HoneytokenManager:
         Returns:
             Triggered honeytoken if found, None otherwise
         """
+        # Load cache on first call
+        await self._load_cache()
+        
         # Combine body and headers for full content check
         body_str = request_body.decode('utf-8', errors='ignore')
         full_content = json.dumps({
@@ -122,28 +158,10 @@ class HoneytokenManager:
             "headers": request_headers
         })
         
-        # Fetch active honeytokens for all tenants (in production, filter by tenant)
-        async with self.db_pool.acquire() as conn:
-            active_tokens = await conn.fetch("""
-                SELECT id, tenant_id, token_type, value, description, deployed_at
-                FROM honeytokens
-                WHERE is_active = true
-            """)
-        
-        for token_row in active_tokens:
-            token_value = token_row["value"]
+        # Check against cached honeytokens
+        for token_value, honeytoken in self._honeytoken_cache.items():
             if token_value in full_content:
                 # Honeytoken triggered!
-                honeytoken = Honeytoken(
-                    id=token_row["id"],
-                    tenant_id=token_row["tenant_id"],
-                    token_type=token_row["token_type"],
-                    value=token_row["value"],
-                    description=token_row["description"],
-                    deployed_at=token_row["deployed_at"],
-                    is_active=True
-                )
-                
                 await self._trigger_honeytoken_alert(honeytoken, client_ip, request_body, request_headers)
                 return honeytoken
         
@@ -235,6 +253,11 @@ class HoneytokenManager:
                 SET is_active = false
                 WHERE id = $1
             """, token_id)
+            
+            # Remove from cache
+            to_remove = [value for value, token in self._honeytoken_cache.items() if token.id == token_id]
+            for value in to_remove:
+                del self._honeytoken_cache[value]
             
             logger.info(f"Revoked honeytoken {token_id}")
             return result == "UPDATE 1"

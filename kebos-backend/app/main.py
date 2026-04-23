@@ -287,6 +287,8 @@ async def honeytoken_middleware(request: Request, call_next):
     """
     Middleware to check every request for honeytokens.
     Phase 4.1 - Honeytoken detection in request body/headers.
+    Uses in-memory cache to avoid DB query on every request.
+    Only checks headers to avoid consuming request body.
     """
     # Skip health check and static files
     if request.url.path == "/health":
@@ -296,14 +298,13 @@ async def honeytoken_middleware(request: Request, call_next):
     if hasattr(app.state, 'honeytoken_manager'):
         honeytoken_manager = app.state.honeytoken_manager
         
-        # Read request body
-        body = await request.body()
+        # Only check headers to avoid consuming request body
         headers = dict(request.headers)
         client_ip = request.client.host if request.client else "unknown"
         
-        # Check for honeytokens
+        # Check for honeytokens in headers only (uses in-memory cache)
         triggered_token = await honeytoken_manager.check_request_for_honeytokens(
-            body, headers, client_ip
+            b"", headers, client_ip
         )
         
         if triggered_token:

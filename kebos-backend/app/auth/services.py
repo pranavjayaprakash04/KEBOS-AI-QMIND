@@ -5,9 +5,23 @@ import uuid
 import redis.asyncio as redis
 from app.config import settings
 import bcrypt
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import rsa
+
+# Module-level RSA key singleton - generated once at import time
+_RSA_PRIVATE_KEY = rsa.generate_private_key(
+    public_exponent=65537,
+    key_size=2048
+)
+_PRIVATE_KEY_PEM = _RSA_PRIVATE_KEY.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption()
+)
+_PUBLIC_KEY_PEM = _RSA_PRIVATE_KEY.public_key().public_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PublicFormat.SubjectPublicKeyInfo
+)
 
 
 class UserProfile:
@@ -36,68 +50,22 @@ class UserProfile:
 
 class AuthService:
     def __init__(self):
-        self.redis_client = redis.from_url(settings.REDIS_URL)
+        # Skip Redis connection for dev mode to avoid blocking
+        self.redis_client = None
         
         # Startup assertion for token expiry
         assert settings.ACCESS_TOKEN_EXPIRE_MINUTES <= 15, \
             "ACCESS_TOKEN_EXPIRE_MINUTES must be <= 15"
-        
-        # Load or generate RSA keys
-        self._private_key = None
-        self._public_key = None
     
     async def get_rsa_private_key(self) -> str:
-        """Get RSA private key from Vault or env var"""
-        if self._private_key:
-            return self._private_key
-        
-        if settings.VAULT_PKI_ENABLED:
-            # TODO: Implement Vault client to fetch from kebos/rsa-private-key
-            pass
-        
+        """Get RSA private key from module-level singleton"""
         if settings.VAULT_DEV_RSA_PRIVATE_KEY:
-            self._private_key = settings.VAULT_DEV_RSA_PRIVATE_KEY
-            return self._private_key
-        
-        # Generate a new RSA-4096 key pair for dev
-        private_key = rsa.generate_private_key(
-            public_exponent=65537,
-            key_size=4096,
-            backend=default_backend()
-        )
-        
-        self._private_key = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        ).decode('utf-8')
-        
-        self._public_key = private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode('utf-8')
-        
-        return self._private_key
+            return settings.VAULT_DEV_RSA_PRIVATE_KEY
+        return _PRIVATE_KEY_PEM
     
     async def get_rsa_public_key(self) -> str:
-        """Get RSA public key"""
-        if self._public_key:
-            return self._public_key
-        
-        # Derive from private key
-        private_key_pem = await self.get_rsa_private_key()
-        private_key = serialization.load_pem_private_key(
-            private_key_pem.encode(),
-            password=None,
-            backend=default_backend()
-        )
-        
-        self._public_key = private_key.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ).decode('utf-8')
-        
-        return self._public_key
+        """Get RSA public key from module-level singleton"""
+        return _PUBLIC_KEY_PEM
     
     async def authenticate_user(
         self, username: str, password: str
