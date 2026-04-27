@@ -36,16 +36,20 @@ class QMindKafkaConsumer:
     
     async def start(self):
         """Start the Kafka consumer and producer"""
+        print(f"[CONSUMER] Starting QMind Kafka consumer on {self.bootstrap_servers}")
+        logger.info(f"Starting QMind Kafka consumer on {self.bootstrap_servers}")
         # Start consumer
         self.consumer = AIOKafkaConsumer(
             *self.TOPICS,
             bootstrap_servers=self.bootstrap_servers,
             group_id="qmind-group",
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
             enable_auto_commit=False,
         )
         
         await self.consumer.start()
+        print("[CONSUMER] AIOKafkaConsumer started")
+        logger.info("AIOKafkaConsumer started")
         
         # Start producer for qmind.results
         self.producer = AIOKafkaProducer(
@@ -53,13 +57,21 @@ class QMindKafkaConsumer:
             value_serializer=lambda v: json.dumps(v).encode('utf-8')
         )
         await self.producer.start()
+        print("[CONSUMER] AIOKafkaProducer started")
+        logger.info("AIOKafkaProducer started")
         
         self.running = True
+        print(f"[CONSUMER] QMind Kafka consumer/producer started on {self.bootstrap_servers}")
         logger.info(f"QMind Kafka consumer/producer started on {self.bootstrap_servers}")
         
         # Start consumption loop with done_callback
-        task = asyncio.create_task(self._consume_loop())
-        task.add_done_callback(self._handle_consumer_crash)
+        print("[CONSUMER] Starting consumption loop task")
+        logger.info("Starting consumption loop task")
+        self._consume_task = asyncio.create_task(self._consume_loop())
+        print("[CONSUMER] Task created, adding callback")
+        self._consume_task.add_done_callback(self._handle_consumer_crash)
+        print("[CONSUMER] Consumption loop task created")
+        logger.info("Consumption loop task created")
     
     def _handle_consumer_crash(self, task):
         """Handle consumer crash with restart after 5s delay"""
@@ -84,8 +96,10 @@ class QMindKafkaConsumer:
     
     async def _consume_loop(self):
         """Main consumption loop with done_callback for proper cleanup"""
+        logger.info("Consumption loop started - waiting for messages")
         try:
             async for msg in self.consumer:
+                logger.info(f"Received message from topic {msg.topic}")
                 try:
                     await self._process_message(msg)
                 except Exception as e:
@@ -135,12 +149,17 @@ class QMindKafkaConsumer:
     
     async def _process_threat_indicator(self, data: dict) -> dict:
         """Process threat indicator from Kebos CatBoost"""
-        threat_id = data.get("threat_id")
-        category_str = data.get("category", "Benign")
-        confidence = data.get("confidence", 0.0)
+        threat_id = data.get("threat_id") or data.get("indicator_value")
+        _type_category = {"ip": "Botnet_IP", "domain": "Phishing", "url": "Phishing",
+                          "hash": "Malware", "email": "Phishing"}
+        category_str = data.get("category") or _type_category.get(
+            data.get("indicator_type", "").lower(), "Benign")
+        confidence = data.get("confidence") if data.get("confidence") is not None \
+            else data.get("catboost_score", 0.0)
         supplier_trust = data.get("supplier_trust", 0.5)
-        feed_source = data.get("feed_source", "unknown")
+        feed_source = data.get("feed_source") or data.get("source", "unknown")
         hours_elapsed = data.get("hours_since_detection", 0.0)
+        tenant_id = data.get("tenant_id", "unknown")
         
         try:
             category = ThreatCategory(category_str)
@@ -158,14 +177,30 @@ class QMindKafkaConsumer:
         
         return {
             "threat_id": result.threat_id,
-            "category": result.category.value,
+            "indicator_value": result.threat_id,
+            "lead_category": result.category.value,
             "confidence": result.confidence,
             "decayed_confidence": result.decayed_confidence,
             "supplier_trust": result.supplier_trust,
             "adversarial_stability": result.adversarial_stability,
             "feed_source": result.feed_source,
             "timestamp": result.timestamp,
-            "source_topic": "threat.indicators"
+            "source_topic": "threat.indicators",
+            "tenant_id": tenant_id,
+            "tenant_type": "enterprise",
+            "category_scores": {
+                "C2_Infrastructure": 0.9 if result.category.value == "C2_Infrastructure" else 0.0,
+                "Botnet_IP": 0.8 if result.category.value == "Botnet_IP" else 0.0,
+                "Phishing": 0.85 if result.category.value == "Phishing" else 0.0,
+                "Malware": 0.75 if result.category.value == "Malware" else 0.0,
+                "Credential_Leak": 0.6 if result.category.value == "Credential_Leak" else 0.0,
+                "DDoS": 0.7 if result.category.value == "DDoS" else 0.0,
+                "Insider_Threat": 0.5 if result.category.value == "Insider_Threat" else 0.0,
+                "Supply_Chain": 0.65 if result.category.value == "Supply_Chain" else 0.0,
+                "CVE_Exploitation": 0.55 if result.category.value == "CVE_Exploitation" else 0.0,
+                "Benign": 0.1 if result.category.value == "Benign" else 0.0,
+            },
+            "reversibility": "REVERSIBLE"
         }
     
     async def _process_honeypot_interaction(self, data: dict) -> dict:
@@ -185,7 +220,8 @@ class QMindKafkaConsumer:
         
         return {
             "threat_id": result.threat_id,
-            "category": result.category.value,
+            "indicator_value": result.threat_id,
+            "lead_category": result.category.value,
             "confidence": result.confidence,
             "decayed_confidence": result.decayed_confidence,
             "supplier_trust": result.supplier_trust,
@@ -193,7 +229,22 @@ class QMindKafkaConsumer:
             "feed_source": result.feed_source,
             "timestamp": result.timestamp,
             "source_topic": "honeypot.interactions",
-            "honeytoken_type": honeytoken_type
+            "honeytoken_type": honeytoken_type,
+            "tenant_id": "unknown",
+            "tenant_type": "enterprise",
+            "category_scores": {
+                "C2_Infrastructure": 0.95,
+                "Botnet_IP": 0.0,
+                "Phishing": 0.0,
+                "Malware": 0.0,
+                "Credential_Leak": 0.0,
+                "DDoS": 0.0,
+                "Insider_Threat": 0.0,
+                "Supply_Chain": 0.0,
+                "CVE_Exploitation": 0.0,
+                "Benign": 0.0,
+            },
+            "reversibility": "REVERSIBLE"
         }
     
     async def _process_crawler_discovery(self, data: dict) -> dict:
@@ -219,7 +270,8 @@ class QMindKafkaConsumer:
         
         return {
             "threat_id": result.threat_id,
-            "category": result.category.value,
+            "indicator_value": result.threat_id,
+            "lead_category": result.category.value,
             "confidence": result.confidence,
             "decayed_confidence": result.decayed_confidence,
             "supplier_trust": result.supplier_trust,
@@ -227,7 +279,22 @@ class QMindKafkaConsumer:
             "feed_source": result.feed_source,
             "timestamp": result.timestamp,
             "source_topic": "crawler.discoveries",
-            "proactive": True  # Crawlers are proactive detection sources
+            "proactive": True,
+            "tenant_id": "unknown",
+            "tenant_type": "enterprise",
+            "category_scores": {
+                "C2_Infrastructure": 0.9 if result.category.value == "C2_Infrastructure" else 0.0,
+                "Botnet_IP": 0.8 if result.category.value == "Botnet_IP" else 0.0,
+                "Phishing": 0.85 if result.category.value == "Phishing" else 0.0,
+                "Malware": 0.75 if result.category.value == "Malware" else 0.0,
+                "Credential_Leak": 0.6 if result.category.value == "Credential_Leak" else 0.0,
+                "DDoS": 0.7 if result.category.value == "DDoS" else 0.0,
+                "Insider_Threat": 0.5 if result.category.value == "Insider_Threat" else 0.0,
+                "Supply_Chain": 0.65 if result.category.value == "Supply_Chain" else 0.0,
+                "CVE_Exploitation": 0.55 if result.category.value == "CVE_Exploitation" else 0.0,
+                "Benign": 0.1 if result.category.value == "Benign" else 0.0,
+            },
+            "reversibility": "REVERSIBLE"
         }
     
     async def _process_analyst_feedback(self, data: dict) -> dict:
@@ -239,10 +306,32 @@ class QMindKafkaConsumer:
         # This is for ML pipeline feedback, not threat scoring
         return {
             "threat_id": threat_id,
+            "indicator_value": threat_id,
+            "lead_category": "Benign",
+            "confidence": analyst_confidence,
+            "decayed_confidence": analyst_confidence,
+            "supplier_trust": 1.0,
+            "adversarial_stability": 0.5,
+            "feed_source": "analyst",
+            "timestamp": __import__('time').time(),
+            "source_topic": "analyst.feedback",
             "feedback": feedback,
             "analyst_confidence": analyst_confidence,
-            "timestamp": __import__('time').time(),
-            "source_topic": "analyst.feedback"
+            "tenant_id": "unknown",
+            "tenant_type": "enterprise",
+            "category_scores": {
+                "C2_Infrastructure": 0.0,
+                "Botnet_IP": 0.0,
+                "Phishing": 0.0,
+                "Malware": 0.0,
+                "Credential_Leak": 0.0,
+                "DDoS": 0.0,
+                "Insider_Threat": 0.0,
+                "Supply_Chain": 0.0,
+                "CVE_Exploitation": 0.0,
+                "Benign": 0.1,
+            },
+            "reversibility": "REVERSIBLE"
         }
     
     async def _send_result(self, result: dict):
@@ -256,6 +345,12 @@ class QMindKafkaConsumer:
     async def stop(self):
         """Stop the Kafka consumer and producer"""
         self.running = False
+        if self._consume_task:
+            self._consume_task.cancel()
+            try:
+                await self._consume_task
+            except asyncio.CancelledError:
+                pass
         if self.consumer:
             await self.consumer.stop()
             logger.info("QMind Kafka consumer stopped")

@@ -25,10 +25,16 @@ services:
       - kafka
     environment:
       - DATABASE_URL=postgresql://kebos:kebos_pass@postgres:5432/kebos
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=kebos
+      - DB_PASSWORD=kebos_pass
+      - DB_NAME=kebos
       - REDIS_URL=redis://redis:6379
       - VAULT_ADDR=http://vault:8200
       - VAULT_TOKEN=${VAULT_TOKEN}
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+      - USE_REAL_PQC=true
     volumes:
       - ./kebos-backend/data:/app/data:ro   # GeoIP database (read-only)
     deploy:
@@ -56,8 +62,9 @@ services:
     environment:
       - DATABASE_URL=postgresql://kebos:kebos_pass@postgres:5432/kebos
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-      - USE_REAL_PQC=false
+      - USE_REAL_PQC=true
       - LD_LIBRARY_PATH=/usr/local/lib
+      - PYTHONUNBUFFERED=1
     deploy:
       resources:
         limits:
@@ -103,7 +110,6 @@ services:
         limits:
           memory: 256M
           cpus: '0.5'
-    user: "1000:1000"
     security_opt:
       - no-new-privileges:true
 

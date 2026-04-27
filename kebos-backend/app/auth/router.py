@@ -21,11 +21,11 @@ class LoginRequest(BaseModel):
 
 
 class UserProfile(BaseModel):
-    id: int
+    id: str  # UUID as string
     username: str
     email: Optional[str] = None
     role: str
-    tenant_id: int
+    tenant_id: str  # UUID as string
     tenant_type: str = "enterprise"
     fido2_verified: bool = False
     fido2_enabled: bool = False
@@ -67,7 +67,6 @@ class Fido2AuthenticateRequest(BaseModel):
 
 
 @router.post("/login")
-@limiter.limit("10/minute")
 async def login(
     request: Request,
     login_request: LoginRequest,
@@ -75,11 +74,18 @@ async def login(
     auth_service: AuthService = Depends()
 ):
     """Login endpoint - sets HttpOnly cookie with JWT"""
+    import logging
+    logger = logging.getLogger(__name__)
+    print(f"DEBUG: Login attempt: username={login_request.username}, password={login_request.password}")
+    logger.info(f"Login attempt: username={login_request.username}")
+    
     user_profile = await auth_service.authenticate_user(
         login_request.username, login_request.password
     )
     
     if not user_profile:
+        print(f"DEBUG: Authentication failed for username={login_request.username}")
+        logger.warning(f"Authentication failed for username={login_request.username}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
     # Check if TOTP is enabled for the user
@@ -114,7 +120,7 @@ async def login(
         max_age=900  # 15 minutes
     )
     
-    return {"user": user_profile}
+    return {"user": user_profile, "access_token": token}
 
 
 @router.post("/verify-totp")
