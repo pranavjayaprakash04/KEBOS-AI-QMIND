@@ -1,9 +1,14 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import Cases from './pages/Cases';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
+import { useBackendHealth } from './hooks/useBackendHealth';
+import { ServiceUnavailableBanner } from './components/ServiceUnavailableBanner';
+import { LoadingSpinner } from './components/LoadingSpinner';
+import { useAuthStore } from './store/authStore';
 
 const NavItem: React.FC<{ to: string; label: string; current: boolean }> = ({ to, label, current }) => (
   <Link
@@ -16,25 +21,62 @@ const NavItem: React.FC<{ to: string; label: string; current: boolean }> = ({ to
   </Link>
 );
 
+const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated } = useAuthStore();
+  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+};
+
 const App: React.FC = () => {
+  const backendStatus = useBackendHealth();
+  const { isAuthenticated, logout } = useAuthStore();
+
+  if (backendStatus === 'checking') return <LoadingSpinner />;
+  if (backendStatus === 'unhealthy') return <ServiceUnavailableBanner />;
+
   return (
     <Router>
       <div className="min-h-screen bg-gray-100">
-        <nav className="bg-white shadow-sm border-b border-gray-200">
-          <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex gap-2">
-              <NavLink to="/" label="Dashboard" />
-              <NavLink to="/cases" label="Cases" />
-              <NavLink to="/reports" label="Reports" />
-              <NavLink to="/settings" label="Settings" />
+        {isAuthenticated && (
+          <nav className="bg-white shadow-sm border-b border-gray-200">
+            <div className="max-w-7xl mx-auto px-4 py-3">
+              <div className="flex gap-2 items-center">
+                <NavLink to="/dashboard" label="Dashboard" />
+                <NavLink to="/cases" label="Cases" />
+                <NavLink to="/reports" label="Reports" />
+                <NavLink to="/settings" label="Settings" />
+                <button
+                  onClick={logout}
+                  className="ml-auto px-4 py-2 bg-red-100 text-red-700 rounded font-medium hover:bg-red-200 transition-colors"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
-          </div>
-        </nav>
+          </nav>
+        )}
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/cases" element={<Cases />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/dashboard" element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/cases" element={
+            <ProtectedRoute>
+              <Cases />
+            </ProtectedRoute>
+          } />
+          <Route path="/reports" element={
+            <ProtectedRoute>
+              <Reports />
+            </ProtectedRoute>
+          } />
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <Settings />
+            </ProtectedRoute>
+          } />
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </div>
     </Router>

@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Case } from '../types/threat';
-import apiClient from '../api/apiClient';
+import { Case, type CaseTimeline } from '../types/threat';
+import { ErrorMessage } from '../components/ErrorMessage';
+import apiClient, { ApiError } from '../api/apiClient';
 
 const Cases: React.FC = () => {
   const queryClient = useQueryClient();
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved' | 'breached'>('all');
-  const [selectedTimeline, setSelectedTimeline] = useState<Case | null>(null);
+  const [selectedTimeline, setSelectedTimeline] = useState<CaseTimeline | null>(null);
   const [downloadingPDF, setDownloadingPDF] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch cases
   const { data: cases, isLoading } = useQuery({
@@ -81,7 +83,8 @@ const Cases: React.FC = () => {
       const response = await apiClient.get(`/api/v1/cases/${caseId}/timeline`);
       setSelectedTimeline(response.data);
     } catch (error) {
-      console.error('Failed to fetch timeline:', error);
+      const message = error instanceof ApiError ? error.message : 'Failed to fetch timeline. Please try again.';
+      setError(message);
     }
   };
 
@@ -101,7 +104,8 @@ const Cases: React.FC = () => {
       link.click();
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Failed to generate CERT-In report:', error);
+      const message = error instanceof ApiError ? error.message : 'Failed to generate CERT-In report. Please try again.';
+      setError(message);
     } finally {
       setDownloadingPDF(null);
     }
@@ -128,6 +132,14 @@ const Cases: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-7xl mx-auto">
+        {/* Error Banner */}
+        {error && (
+          <ErrorMessage
+            message={error}
+            onDismiss={() => setError(null)}
+          />
+        )}
+
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Case Management</h1>
 
         {/* Filter Bar */}

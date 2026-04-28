@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
-import apiClient from '../api/apiClient';
+import { ErrorMessage } from '../components/ErrorMessage';
+import apiClient, { ApiError } from '../api/apiClient';
 
 interface Tenant {
   id: number;
@@ -18,6 +19,7 @@ const Settings: React.FC = () => {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch current tenant
   const { data: tenant, isLoading } = useQuery({
@@ -47,9 +49,12 @@ const Settings: React.FC = () => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant'] });
       setSaving(false);
+      setError(null);
     },
-    onError: () => {
+    onError: (err) => {
       setSaving(false);
+      const message = err instanceof ApiError ? err.message : 'Failed to save settings. Please try again.';
+      setError(message);
     },
   });
 
@@ -79,6 +84,14 @@ const Settings: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 p-6">
       <div className="max-w-4xl mx-auto">
+        {/* Error Banner */}
+        {error && (
+          <ErrorMessage
+            message={error}
+            onDismiss={() => setError(null)}
+          />
+        )}
+
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Tenant Settings</h1>
 
         <div className="bg-white rounded-lg shadow-md p-6 space-y-6">

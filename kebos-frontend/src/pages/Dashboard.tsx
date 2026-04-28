@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { io } from 'socket.io-client';
 import ThreatCard from '../components/ThreatCard';
 import AnalystQueue from '../components/AnalystQueue';
+import { ErrorMessage } from '../components/ErrorMessage';
 import { ThreatEvent, Case } from '../types/threat';
 import { useAuthStore } from '../store/authStore';
-import apiClient from '../api/apiClient';
+import { useWebSocket } from '../hooks/useWebSocket';
+import apiClient, { ApiError } from '../api/apiClient';
 
 const Dashboard: React.FC = () => {
   const { user, isAuthenticated, rehydrate } = useAuthStore();
   const [certInWarning, setCertInWarning] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [error, setError] = useState<string | null>(null);
 
   // Rehydrate auth on mount
   useEffect(() => {
@@ -68,34 +70,28 @@ const Dashboard: React.FC = () => {
   });
 
   // WebSocket connection
-  useEffect(() => {
-    if (!isAuthenticated || !user) return;
-
-    const wsUrl = `${import.meta.env.VITE_WS_URL || 'ws://localhost:8000'}/ws/threats/${user.tenant_id}`;
-    const newSocket = io(wsUrl);
-
-    newSocket.on('connect', () => {
+  const wsUrl = user ? `${import.meta.env.VITE_WS_BASE_URL || 'ws://localhost:8000'}/ws/threats/${user.tenant_id}` : '';
+  const { status: wsStatus } = useWebSocket({
+    url: wsUrl,
+    enabled: isAuthenticated && !!user,
+    onConnect: () => {
       console.log('WebSocket connected');
-    });
-
-    newSocket.on('threat_updated', () => {
-      // Invalidate queries to trigger refetch
-      refetchThreats();
-      refetchCases();
-    });
-
-    newSocket.on('cert_in_warning', (message: string) => {
-      setCertInWarning(message);
-    });
-
-    newSocket.on('disconnect', () => {
+    },
+    onDisconnect: () => {
       console.log('WebSocket disconnected');
-    });
-
-    return () => {
-      newSocket.disconnect();
-    };
-  }, [isAuthenticated, user, refetchThreats, refetchCases]);
+    },
+    onMessage: (data) => {
+      if (typeof data === 'object' && data !== null) {
+        if ('threat_updated' in data) {
+          refetchThreats();
+          refetchCases();
+        }
+        if ('cert_in_warning' in data && typeof data.cert_in_warning === 'string') {
+          setCertInWarning(data.cert_in_warning);
+        }
+      }
+    },
+  });
 
   const handleViewReport = (threat: ThreatEvent) => {
     // TODO: Open SOC Report Viewer modal
@@ -114,7 +110,8 @@ const Dashboard: React.FC = () => {
       });
       refetchThreats();
     } catch (error) {
-      console.error('Failed to mark threat as benign:', error);
+      const message = error instanceof ApiError ? error.message : 'Failed to mark threat as benign. Please try again.';
+      setError(message);
     }
   };
 
@@ -124,7 +121,8 @@ const Dashboard: React.FC = () => {
       refetchCases();
       refetchThreats();
     } catch (error) {
-      console.error('Failed to approve action:', error);
+      const message = error instanceof ApiError ? error.message : 'Failed to approve action. Please try again.';
+      setError(message);
     }
   };
 
@@ -139,6 +137,14 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-100">
+      {/* Error Banner */}
+      {error && (
+        <ErrorMessage
+          message={error}
+          onDismiss={() => setError(null)}
+        />
+      )}
+
       {/* CERT-In Warning Banner */}
       {certInWarning && (
         <div className="bg-red-600 text-white px-4 py-3 text-center font-semibold">
@@ -149,6 +155,18 @@ const Dashboard: React.FC = () => {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* WebSocket Status Banner */}
+      {wsStatus === 'polling' && (
+        <div className="bg-amber-500 text-white px-4 py-2 text-center text-sm font-medium">
+          🔄 WebSocket polling - connection unstable, using fallback
+        </div>
+      )}
+      {wsStatus === 'disconnected' && (
+        <div className="bg-gray-500 text-white px-4 py-2 text-center text-sm font-medium">
+          ⚠️ WebSocket disconnected - real-time updates unavailable
         </div>
       )}
 

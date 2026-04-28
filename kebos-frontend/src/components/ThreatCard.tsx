@@ -46,6 +46,14 @@ const ThreatCard: React.FC<ThreatCardProps> = ({
     return proactiveSources.includes(threat.source);
   };
 
+  const isGovDomain = (): boolean => {
+    if (threat.ioc_type === 'domain' || threat.ioc_type === 'url') {
+      const govTlds = ['.gov', '.gov.in', '.gov.uk', '.gov.au', '.gov.ca', '.gov.sg', '.gov.my', '.gov.ph', '.gov.bd', '.gov.lk', '.gov.np'];
+      return govTlds.some(tld => threat.ioc_value.toLowerCase().endsWith(tld));
+    }
+    return false;
+  };
+
   const formatTimestamp = (timestamp: string): string => {
     const date = new Date(timestamp);
     return date.toLocaleString();
@@ -59,13 +67,16 @@ const ThreatCard: React.FC<ThreatCardProps> = ({
           <div className="font-mono text-sm text-gray-600 break-all mb-2">
             {threat.ioc_value}
           </div>
-          <span
-            className={`inline-block px-2 py-1 text-xs font-bold rounded border ${getCategoryColor(
-              threat.lead_category
-            )}`}
-          >
-            {threat.lead_category.replace('_', ' ')}
-          </span>
+          <div className="flex gap-2 mb-2">
+            <span className="text-xs text-gray-500 uppercase">{threat.ioc_type}</span>
+            <span
+              className={`inline-block px-2 py-1 text-xs font-bold rounded border ${getCategoryColor(
+                threat.lead_category
+              )}`}
+            >
+              {threat.lead_category.replace('_', ' ')}
+            </span>
+          </div>
         </div>
         <span
           className={`ml-2 px-2 py-1 text-xs font-semibold rounded ${getStatusColor(
@@ -81,6 +92,15 @@ const ThreatCard: React.FC<ThreatCardProps> = ({
         <div className="mb-3">
           <div className="bg-blue-100 border border-blue-500 rounded px-2 py-1 text-xs font-bold text-blue-800 inline-flex items-center">
             🔍 PROACTIVELY DETECTED — identified before any network impact
+          </div>
+        </div>
+      )}
+
+      {/* Government Domain Flag */}
+      {isGovDomain() && (
+        <div className="mb-3">
+          <div className="bg-amber-100 border border-amber-500 rounded px-2 py-1 text-xs font-bold text-amber-800 inline-flex items-center">
+            🏛️ GOVERNMENT DOMAIN — high-priority target
           </div>
         </div>
       )}
