@@ -4,6 +4,11 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql://user:pass@localhost:5432/kebos"
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_USER: str = "user"
+    DB_PASSWORD: str = "pass"
+    DB_NAME: str = "kebos"
     
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
@@ -26,10 +31,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 480
     
     # PQC
-    USE_REAL_PQC: bool = False
-    
+    USE_REAL_PQC: bool = True
+
     # Security
-    SECRET_KEY: str = "change-me-in-production"
+    SECRET_KEY: str = ""
     
     # Syslog
     POSTGRES_USER: str = "kebos"

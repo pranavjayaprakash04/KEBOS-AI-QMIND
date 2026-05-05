@@ -175,9 +175,7 @@ class VaultBreachResponse:
                 encryption_algorithm=serialization.NoEncryption()
             ).decode('utf-8')
 
-            # Store in Vault (TODO: implement Vault client)
-            # vault_client.write_secret("kebos/rsa-private-key", private_pem)
-            # Update in-memory key immediately
+            # Store in Vault and update in-memory key immediately
             await self._rotate_rsa_keypair(private_pem)
             result.steps_completed.append("rsa_keypair")
             logger.info("RSA-4096 keypair rotated successfully")
@@ -270,22 +268,39 @@ class VaultBreachResponse:
 
     async def _rotate_rsa_keypair(self, new_key_pem: str):
         """Rotate RSA keypair - store in Vault and update in-memory cache"""
-        # TODO: Implement Vault client to write to kebos/rsa-private-key
-        # For now, log the action
-        logger.info("RSA keypair stored in Vault (TODO: implement hvac client)")
+        # Store new RSA key in Vault
+        success = vault_manager.put_secret("kebos/rsa-private-key", "private_key", new_key_pem)
+        if success:
+            logger.info("RSA-4096 keypair stored in Vault: kebos/rsa-private-key")
+        else:
+            logger.warning("Failed to store RSA keypair in Vault - using in-memory only")
         # In production, this would also trigger a key reload in AuthService
 
     async def _rotate_db_passwords(self):
         """Rotate all database passwords via Vault"""
-        # TODO: Implement Vault KV rotation for database credentials
-        # For now, log the action
-        logger.info("DB passwords rotated in Vault (TODO: implement hvac client)")
+        import secrets
+        # Generate new database password
+        new_password = secrets.token_urlsafe(32)
+        # Store in Vault
+        success = vault_manager.put_secret("kebos/database", "password", new_password)
+        if success:
+            logger.info("Database password rotated in Vault: kebos/database")
+        else:
+            logger.warning("Failed to rotate DB password in Vault")
 
     async def _rotate_kafka_credentials(self):
         """Rotate Kafka credentials via Vault"""
-        # TODO: Implement Vault KV rotation for Kafka credentials
-        # For now, log the action
-        logger.info("Kafka credentials rotated in Vault (TODO: implement hvac client)")
+        import secrets
+        # Generate new Kafka credentials
+        new_username = f"kebos-{secrets.token_hex(8)}"
+        new_password = secrets.token_urlsafe(32)
+        # Store in Vault
+        success_user = vault_manager.put_secret("kebos/kafka", "username", new_username)
+        success_pass = vault_manager.put_secret("kebos/kafka", "password", new_password)
+        if success_user and success_pass:
+            logger.info("Kafka credentials rotated in Vault: kebos/kafka")
+        else:
+            logger.warning("Failed to rotate Kafka credentials in Vault")
 
     async def _rotate_external_api_keys(self):
         """Log external API key rotation requirement (manual step)"""

@@ -67,18 +67,25 @@ class CaseManager:
         
         try:
             async with self.db_pool.acquire() as conn:
+                # Look up the actual threat event UUID by indicator value
+                te_row = await conn.fetchrow(
+                    "SELECT id FROM threat_events WHERE indicator_value = $1",
+                    ioc_value
+                )
+                actual_threat_id = te_row['id'] if te_row else None
+
                 # Insert case
                 await conn.execute(
                     """
-                    INSERT INTO cases (id, case_number, tenant_id, threat_event_id, title, status, severity, cert_in_deadline, cert_in_status)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    INSERT INTO cases (id, case_number, tenant_id, threat_id, title, status, severity, cert_in_deadline, cert_in_status, created_at, updated_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
                     """,
-                    case_id, case_number, tenant_id, threat_event_id,
+                    case_id, case_number, tenant_id, actual_threat_id,
                     f"{lead_category} - {ioc_value}", CaseStatus.OPEN.value,
                     severity.value, cert_in_deadline, CERTInStatus.PENDING.value
                 )
-                
-                logger.info(f"Created case {case_number} for threat {threat_event_id}")
+
+                logger.info(f"Created case {case_number} for threat {ioc_value}")
                 
                 # Generate CERT-In report in background
                 # Note: In production, this would be a separate background task

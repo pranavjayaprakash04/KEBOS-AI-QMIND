@@ -2,7 +2,7 @@
 Reporting Router for Kebos AI.
 Phase 3.2 - CERT-In report generation with Dilithium-3 signatures.
 """
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from uuid import UUID
 from typing import Optional
 from app.auth.dependencies import get_current_user
@@ -15,6 +15,43 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
+
+
+@router.get("/", summary="List generated CERT-In reports")
+async def list_reports(
+    limit: int = 50,
+    offset: int = 0,
+    current_user=Depends(get_current_user),
+):
+    """Return all CERT-In reports ordered by creation date descending."""
+    from app.main import app
+    if not hasattr(app.state, 'db_pool'):
+        raise HTTPException(status_code=500, detail="Database not available")
+
+    async with app.state.db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT report_id, incident_id, incident_type, severity,
+                   pubkey_ref, report_hash, created_at
+            FROM cert_in_reports
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit, offset,
+        )
+
+    return [
+        {
+            "report_id": row["report_id"],
+            "incident_id": str(row["incident_id"]),
+            "incident_type": row["incident_type"],
+            "severity": row["severity"],
+            "pubkey_ref": row["pubkey_ref"],
+            "report_hash": row["report_hash"],
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        }
+        for row in rows
+    ]
 
 
 @router.post("/cert-in")

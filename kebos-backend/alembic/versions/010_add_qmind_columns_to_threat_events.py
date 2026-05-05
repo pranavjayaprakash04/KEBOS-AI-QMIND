@@ -7,21 +7,38 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 
-revision = '010_add_qmind_columns_to_threat_events'
+revision = '010_qmind_columns'
 down_revision = '009_add_audit_entries'
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    # Add missing columns to threat_events table
-    op.add_column('threat_events', sa.Column('indicator_value', sa.Text(), nullable=True))
-    op.add_column('threat_events', sa.Column('lead_category', sa.String(50), nullable=True))
-    op.add_column('threat_events', sa.Column('category_scores', postgresql.JSON(), nullable=True))
-    op.add_column('threat_events', sa.Column('reversibility', sa.String(50), nullable=True))
+    # Get connection to check if columns exist
+    conn = op.get_bind()
     
-    # Add index for indicator_value
-    op.create_index('ix_threat_events_indicator_value', 'threat_events', ['indicator_value'])
+    # Check if indicator_value column already exists
+    inspector = sa.inspect(conn)
+    columns = [col['name'] for col in inspector.get_columns('threat_events')]
+    
+    # Add missing columns to threat_events table (idempotent)
+    if 'indicator_value' not in columns:
+        op.add_column('threat_events', sa.Column('indicator_value', sa.Text(), nullable=True))
+    
+    if 'lead_category' not in columns:
+        op.add_column('threat_events', sa.Column('lead_category', sa.String(50), nullable=True))
+    
+    if 'category_scores' not in columns:
+        op.add_column('threat_events', sa.Column('category_scores', postgresql.JSON(), nullable=True))
+    
+    if 'reversibility' not in columns:
+        op.add_column('threat_events', sa.Column('reversibility', sa.String(50), nullable=True))
+    
+    # Add index for indicator_value (idempotent)
+    indexes = inspector.get_indexes('threat_events')
+    index_names = [idx['name'] for idx in indexes]
+    if 'ix_threat_events_indicator_value' not in index_names:
+        op.create_index('ix_threat_events_indicator_value', 'threat_events', ['indicator_value'])
 
 
 def downgrade():

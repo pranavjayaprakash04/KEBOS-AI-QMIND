@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from app.security.validate_environment import validate_environment
 from app.security.headers import SecurityHeadersMiddleware
 from app.auth.router import router as auth_router
-from app.threat_detection.router import router as signals_router
+from app.threat_detection.router import router as threats_router
 from app.deception.router import router as honeygrid_router
 from app.siem_integration.router import router as siem_router
 from app.nta.router import router as nta_router
@@ -29,7 +29,7 @@ from app.genai_assistant.llm_router import GroqClient, LocalGemmaClient
 from app.dashboard.websocket_manager import websocket_manager
 from app.config import settings
 from app.api.middleware.rate_limit import limiter
-from app.siem_integration.splunk_hec import splunk_hec
+from app.siem_integration.splunk_hec import get_splunk_hec_client
 from app.security.vault_breach import vault_manager
 import asyncpg
 import sys
@@ -48,9 +48,9 @@ logger = logging.getLogger(__name__)
 errors = validate_environment()
 critical_errors = [e for e in errors if e.startswith("CRITICAL")]
 if critical_errors:
-    print("Environment validation failed:")
+    logger.error("Environment validation failed:")
     for error in errors:
-        print(f"  - {error}")
+        logger.error(f"  - {error}")
     sys.exit(1)
 
 # Startup assertion for token expiry
@@ -145,15 +145,16 @@ async def lifespan(app: FastAPI):
         app.state.case_manager = case_manager
         
         # Start QMind results consumer with done_callback
-        task = asyncio.create_task(consume_qmind_results(), name="qmind-results-consumer")
-        task.add_done_callback(handle_task_error)
+        qmind_task = asyncio.create_task(consume_qmind_results(), name="qmind-results-consumer")
+        qmind_task.add_done_callback(handle_task_error)
+        app.state.qmind_consumer = qmind_task
         logger.info("qmind.results consumer registered")
         
         # Start CERT-In SLA monitor (Phase 3.3)
         cert_in_monitor = get_cert_in_sla_monitor(db_pool)
         await cert_in_monitor.start()
         app.state.cert_in_monitor = cert_in_monitor
-        print("CERT-In SLA monitor started")
+        logger.info("CERT-In SLA monitor started")
         
         # Store honeytoken manager for middleware
         app.state.honeytoken_manager = get_honeytoken_manager(db_pool)
@@ -162,33 +163,33 @@ async def lifespan(app: FastAPI):
         ct_log_monitor = get_ct_log_monitor()
         ct_log_task = await ct_log_monitor.start()
         app.state.ct_log_monitor = ct_log_monitor
-        print("CT Log Monitor started")
+        logger.info("CT Log Monitor started")
         
         # Start Paste Monitor (Phase 6.2)
         paste_monitor = get_paste_monitor()
         paste_task = await paste_monitor.start()
         app.state.paste_monitor = paste_monitor
-        print("Paste Monitor started")
+        logger.info("Paste Monitor started")
         
         # Start Domain Monitor (Phase 6.2)
         domain_monitor = get_domain_monitor()
         domain_task = await domain_monitor.start()
         app.state.domain_monitor = domain_monitor
-        print("Domain Monitor started")
+        logger.info("Domain Monitor started")
         
         # Start Dependency Health Monitor (Phase 12)
         dep_health_monitor = get_dependency_health_monitor()
         task = asyncio.create_task(dep_health_monitor.start())
         task.add_done_callback(lambda t: logger.info("Dependency health monitor completed"))
         app.state.dep_health_monitor = dep_health_monitor
-        print("Dependency Health Monitor started")
+        logger.info("Dependency Health Monitor started")
         
         # Start Threat Indicator Publisher (CatBoost + Kafka)
         threat_publisher = ThreatIndicatorPublisher()
         try:
             await threat_publisher.start(settings.KAFKA_BOOTSTRAP_SERVERS)
             app.state.threat_publisher = threat_publisher
-            print("Threat Indicator Publisher started")
+            logger.info("Threat Indicator Publisher started")
         except Exception as e:
             logger.warning(f"Threat publisher failed to start (Kafka may not be ready): {e}")
             app.state.threat_publisher = None
@@ -240,7 +241,7 @@ async def lifespan(app: FastAPI):
         logger.info("TLS Syslog handler configured")
 
         # Configure Splunk HEC
-        splunk_hec.configure(
+        get_splunk_hec_client().configure(
             hec_url=settings.SPLUNK_HEC_URL,
             hec_token=settings.SPLUNK_HEC_TOKEN,
             index=settings.SPLUNK_INDEX
@@ -327,7 +328,7 @@ async def x_request_id_middleware(request: Request, call_next):
 
 
 # Include routers
-app.include_router(signals_router)
+app.include_router(threats_router)
 app.include_router(auth_router)
 app.include_router(nta_router)
 app.include_router(vuln_router)
@@ -340,6 +341,38 @@ app.include_router(reporting_router)
 
 @app.websocket("/ws/threats/{tenant_id}")
 async def websocket_threats(websocket: WebSocket, tenant_id: str):
+    """WebSocket endpoint for real-time threat updates - requires authentication"""
+    # Extract token from query parameter or header
+    token = None
+    # Check query parameter first
+    if "token" in websocket.query_params:
+        token = websocket.query_params["token"]
+    # Check Authorization header
+    elif "authorization" in websocket.headers:
+        auth_header = websocket.headers["authorization"]
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    
+    if not token:
+        await websocket.close(code=1008, reason="Missing authentication token")
+        return
+    
+    # Verify token and extract user
+    from app.auth.services import AuthService
+    auth_service = AuthService()
+    payload = await auth_service.verify_token(token)
+    
+    if not payload:
+        await websocket.close(code=1008, reason="Invalid or expired token")
+        return
+    
+    # Verify user belongs to the requested tenant
+    user_tenant_id = payload.get("tenant_id")
+    if str(user_tenant_id) != str(tenant_id):
+        await websocket.close(code=1008, reason="Unauthorized: tenant mismatch")
+        return
+    
+    # Accept connection and add to manager
     await websocket_manager.connect(websocket, tenant_id)
     try:
         while True:

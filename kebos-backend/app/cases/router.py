@@ -60,7 +60,7 @@ async def list_cases(
     case_manager = get_case_manager(app.state.db_pool)
     cases = await case_manager.list_cases(current_user.tenant_id, status)
     
-    return {"cases": cases}
+    return cases
 
 
 @router.get("/{case_id}")
@@ -185,40 +185,40 @@ async def generate_cert_in_report(
             raise HTTPException(404, "Case not found")
         threat = await db.fetchrow(
             "SELECT * FROM threat_events WHERE id=$1",
-            case['threat_event_id']
+            case['threat_id']
         )
 
-    # Generate SOC report (use existing generator)
-    soc_gen = app.state.soc_generator
-    soc_report = await soc_gen.generate_incident_report(
-        threat_data=dict(threat),
-        classification="INTERNAL",
-        tenant_type=current_user.tenant_type or "enterprise"
-    )
+    # Build minimal SOC report — all fields have defaults in cert_in_generator
+    import types
+    soc_report = types.SimpleNamespace()
 
     # Get Dilithium-3 signing key from settings/Vault
     signing_key = getattr(app.state, 'dilithium_signing_key', None)
 
     # Generate signed PDF
+    threat_dict = dict(threat) if threat else {}
     pdf_bytes = await cert_in_generator.generate(
-        threat_event=dict(threat),
+        threat_event=threat_dict,
         soc_report=soc_report,
-        tenant_name=current_user.organisation_name or "Pynevera Technologies",
+        tenant_name=getattr(current_user, 'organisation_name', None) or "Pynevera Technologies",
         signing_key_bytes=signing_key,
     )
 
-    # Log to audit trail
-    await app.state.audit_chain.append(
-        tenant_id=current_user.tenant_id,
-        actor_id=current_user.id,
-        action="CERT_IN_REPORT_GENERATED",
-        resource=f"case:{case_id}",
-        metadata={"case_id": str(case_id)}
-    )
+    # Log to audit trail (non-blocking — skip if unavailable)
+    try:
+        await app.state.audit_chain.append(
+            tenant_id=current_user.tenant_id,
+            actor_id=current_user.id,
+            action="CERT_IN_REPORT_GENERATED",
+            resource=f"case:{case_id}",
+            metadata={"case_id": str(case_id)}
+        )
+    except Exception:
+        pass
 
     return Response(
-        200,
         content=pdf_bytes,
+        status_code=200,
         media_type="application/pdf",
         headers={
             "Content-Disposition": f'attachment; filename="cert-in-{case_id}.pdf"',

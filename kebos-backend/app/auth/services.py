@@ -27,11 +27,11 @@ _PUBLIC_KEY_PEM = _RSA_PRIVATE_KEY.public_key().public_bytes(
 class UserProfile:
     def __init__(
         self,
-        id: int,
+        id: str,  # UUID as string
         username: str,
         email: Optional[str],
         role: str,
-        tenant_id: int,
+        tenant_id: str,  # UUID as string
         tenant_type: str = "enterprise",
         fido2_verified: bool = False,
         fido2_enabled: bool = False,
@@ -50,8 +50,12 @@ class UserProfile:
 
 class AuthService:
     def __init__(self):
-        # Skip Redis connection for dev mode to avoid blocking
-        self.redis_client = None
+        # Initialize Redis client for token blacklist
+        try:
+            self.redis_client = redis.from_url(settings.REDIS_URL)
+        except Exception as e:
+            logger.warning(f"Redis client initialization failed: {e}")
+            self.redis_client = None
         
         # Startup assertion for token expiry
         assert settings.ACCESS_TOKEN_EXPIRE_MINUTES <= 15, \
@@ -70,31 +74,33 @@ class AuthService:
     async def authenticate_user(
         self, username: str, password: str
     ) -> Optional[UserProfile]:
-        """Authenticate user with username/password"""
-        # TODO: Implement actual DB lookup and password verification
-        # For scaffold, return mock user
-        if username == "admin" and password == "admin":
+        """Authenticate user with username/password (demo credentials — replace with DB lookup)"""
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if username == "admin" and password == "admin123":
             return UserProfile(
-                id=1,
+                id="0838c1ce-8874-4885-92b5-38735a990f4a",
                 username="admin",
-                email="admin@kebos.ai",
-                role="ADMIN",
-                tenant_id=1,
+                email="admin@kebos.local",
+                role="admin",
+                tenant_id="0838c1ce-8874-4885-92b5-38735a990f4a",
                 tenant_type="enterprise",
-                fido2_verified=True,
-                fido2_enabled=True
+                fido2_verified=False,
+                fido2_enabled=False
             )
         if username == "gov_user" and password == "gov":
             return UserProfile(
-                id=2,
+                id="1b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e",
                 username="gov_user",
                 email="gov@gov.in",
                 role="ANALYST",
-                tenant_id=2,
+                tenant_id="1b2c3d4e-5f6a-7b8c-9d0e-1f2a3b4c5d6e",
                 tenant_type="government",
                 fido2_verified=False,
-                fido2_enabled=False  # Government user without FIDO2
+                fido2_enabled=False
             )
+        logger.warning("Authentication failed for a user")
         return None
     
     async def create_access_token(self, user: UserProfile) -> str:
@@ -128,11 +134,10 @@ class AuthService:
                 algorithms=["RS256"]
             )
             
-            # Check JTI blacklist
+            # Check JTI blacklist (skip if redis_client is None for dev mode)
             jti = payload.get("jti")
-            tenant_id = payload.get("tenant_id")
-            if jti and tenant_id:
-                blacklisted = await self.redis_client.exists(f"jti:{tenant_id}:{jti}")
+            if jti and self.redis_client:
+                blacklisted = await self.redis_client.exists(f"blacklist:{jti}")
                 if blacklisted:
                     return None
             
@@ -140,14 +145,23 @@ class AuthService:
         except jwt.PyJWTError:
             return None
     
-    async def logout_user(self, user: UserProfile, jti: str):
+    async def logout_user(self, user: UserProfile, jti: str, exp: int = None):
         """Blacklist the user's current JTI"""
-        # Add JTI to Redis blacklist with 24h TTL
-        await self.redis_client.setex(
-            f"jti:{user.tenant_id}:{jti}",
-            86400,  # 24 hours
-            "1"
-        )
+        if not self.redis_client:
+            return
+        
+        # Calculate TTL based on token expiry (default to 15 minutes if not provided)
+        if exp:
+            ttl = max(0, exp - int(datetime.utcnow().timestamp()))
+        else:
+            ttl = 900  # 15 minutes default
+        
+        if ttl > 0:
+            await self.redis_client.setex(
+                f"blacklist:{jti}",
+                ttl,
+                "1"
+            )
 
     async def create_challenge_token(
         self,

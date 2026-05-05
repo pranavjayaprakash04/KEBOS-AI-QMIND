@@ -76,7 +76,6 @@ async def login(
     """Login endpoint - sets HttpOnly cookie with JWT"""
     import logging
     logger = logging.getLogger(__name__)
-    print(f"DEBUG: Login attempt: username={login_request.username}, password={login_request.password}")
     logger.info(f"Login attempt: username={login_request.username}")
     
     user_profile = await auth_service.authenticate_user(
@@ -84,7 +83,6 @@ async def login(
     )
     
     if not user_profile:
-        print(f"DEBUG: Authentication failed for username={login_request.username}")
         logger.warning(f"Authentication failed for username={login_request.username}")
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
@@ -495,17 +493,19 @@ async def logout(
     auth_service: AuthService = Depends()
 ):
     """Logout - delete cookie and blacklist JTI"""
-    # Extract JTI from token
+    # Extract JTI and exp from token
     token = request.cookies.get("access_token")
     jti = None
+    exp = None
     if token:
         payload = await auth_service.verify_token(token)
         if payload:
             jti = payload.get("jti")
+            exp = payload.get("exp")
     
-    # Blacklist the token's JTI
+    # Blacklist the token's JTI with correct TTL
     if jti:
-        await auth_service.logout_user(current_user, jti)
+        await auth_service.logout_user(current_user, jti, exp)
     
     response.delete_cookie("access_token")
     return {"message": "Logged out successfully"}

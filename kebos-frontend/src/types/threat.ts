@@ -54,6 +54,23 @@ export interface Case {
   updated_at: string;
 }
 
+export interface TimelineEvent {
+  timestamp: string;
+  event_type: string;
+  actor: string;
+  description: string;
+  metadata: Record<string, unknown>;
+  severity: string;
+}
+
+export interface CaseTimeline {
+  case_id: string;
+  total_events: number;
+  events: TimelineEvent[];
+  generated_at: string;
+  dilithium_signature: string;
+}
+
 export interface SOCReport {
   case_id: string;
   sections: {

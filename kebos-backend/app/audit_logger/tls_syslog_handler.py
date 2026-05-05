@@ -3,6 +3,8 @@ import socket
 import logging
 import threading
 
+logger = logging.getLogger(__name__)
+
 
 class TLSSyslogHandler(logging.Handler):
     """
@@ -31,16 +33,34 @@ class TLSSyslogHandler(logging.Handler):
             try:
                 msg = self.format(record) + "\n"
                 self._sock.sendall(msg.encode("utf-8"))
-            except Exception:
+            except Exception as e:
+                logger.warning(f"TLS syslog send failed, attempting reconnect: {e}")
                 try:
                     self._connect()
                     self._sock.sendall(msg.encode("utf-8"))
-                except Exception:
+                except Exception as e:
+                    logger.error(f"TLS syslog reconnect failed: {e}")
                     self.handleError(record)
+
+    def emit_raw(self, message: str):
+        with self._lock:
+            try:
+                self._sock.sendall((message + "\n").encode("utf-8"))
+            except Exception as e:
+                logger.warning(f"TLS syslog raw send failed, attempting reconnect: {e}")
+                try:
+                    self._connect()
+                    self._sock.sendall((message + "\n").encode("utf-8"))
+                except Exception as e:
+                    logger.error(f"TLS syslog raw reconnect failed: {e}")
+
+
+app_tls_handler: TLSSyslogHandler | None = None
 
 
 def setup_tls_syslog(app_logger: logging.Logger, host: str, port: int, ca_cert: str):
     """Call at startup if SYSLOG_HOST is configured."""
+    global app_tls_handler
     if not host:
         return  # disabled in development
     handler = TLSSyslogHandler(host=host, port=port, ca_cert_path=ca_cert or None)
@@ -48,3 +68,4 @@ def setup_tls_syslog(app_logger: logging.Logger, host: str, port: int, ca_cert: 
     formatter = logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
     handler.setFormatter(formatter)
     app_logger.addHandler(handler)
+    app_tls_handler = handler

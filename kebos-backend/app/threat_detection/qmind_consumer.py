@@ -4,8 +4,8 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from app.config import settings
 from app.deception.honeygrid import HoneyGridManager
-from app.siem_integration.cef_forwarder import cef_forwarder
-from app.siem_integration.splunk_hec import splunk_hec
+from app.siem_integration.cef_forwarder import get_cef_forwarder
+from app.siem_integration.splunk_hec import get_splunk_hec_client
 from app.dashboard.websocket_manager import websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -154,13 +154,13 @@ async def update_threat_with_qmind_result(result: dict):
 
         # Forward to SIEMs (CEF + Splunk) as background tasks
         task4 = asyncio.create_task(
-            cef_forwarder.forward(result),
+            get_cef_forwarder().forward(result),
             name=f"cef_forward_{indicator}"
         )
         task4.add_done_callback(handle_task_error)
 
         task5 = asyncio.create_task(
-            splunk_hec.send_event(result),
+            get_splunk_hec_client().send_event(result),
             name=f"splunk_hec_{indicator}"
         )
         task5.add_done_callback(handle_task_error)

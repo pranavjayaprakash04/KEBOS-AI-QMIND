@@ -78,7 +78,9 @@ class CERTInSLAMonitor:
         five_hour_alert_sent = case["five_hour_alert_sent"]
         tenant_id = case["tenant_id"]
         
-        # Calculate elapsed time in hours
+        # Calculate elapsed time in hours — normalise created_at to UTC-aware if naive
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
         elapsed = (datetime.now(timezone.utc) - created_at).total_seconds() / 3600
         
         # 5-hour alert (gives 1-hour buffer before 6-hour deadline)

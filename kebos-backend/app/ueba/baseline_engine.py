@@ -130,8 +130,8 @@ class UEBABaselineEngine:
             async with self.db_pool.acquire() as conn:
                 await conn.execute(
                     """
-                    INSERT INTO ueba_events (user_id, tenant_id, features)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO ueba_events (id, user_id, tenant_id, features)
+                    VALUES (gen_random_uuid(), $1, $2, $3)
                     """,
                     user_id, tenant_id, json.dumps(features)
                 )

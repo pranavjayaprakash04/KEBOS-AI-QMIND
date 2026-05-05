@@ -102,10 +102,16 @@ class SignalScorer:
     ) -> SignalResult:
         """
         Score a threat signal with decay and adversarial stability.
+        High-confidence inputs (≥0.85) are preserved from decay reduction.
         """
-        # Apply time decay
+        # Apply time decay, but preserve high-confidence inputs
         decay_factor = self.calculate_decay(category, hours_since_detection)
         decayed_confidence = raw_confidence * decay_factor
+        
+        # Preserve high-confidence inputs from decay reduction
+        # If raw confidence is ≥0.85, ensure final confidence doesn't drop below 0.85
+        if raw_confidence >= 0.85 and decayed_confidence < 0.85:
+            decayed_confidence = 0.85
         
         # Calculate adversarial stability
         adversarial_stability = self.calculate_adversarial_stability(

@@ -121,3 +121,15 @@ class DigitalTwinSimulator:
 
     def _is_confirmed_threat(self, event) -> bool:
         return event.get("status") in ("CONFIRMED_THREAT", "ELEVATED")
+
+
+# Singleton
+_digital_twin_simulator: DigitalTwinSimulator | None = None
+
+
+def get_digital_twin_simulator(db_pool: asyncpg.Pool | None = None) -> DigitalTwinSimulator:
+    """Get or create the singleton DigitalTwinSimulator instance"""
+    global _digital_twin_simulator
+    if _digital_twin_simulator is None and db_pool is not None:
+        _digital_twin_simulator = DigitalTwinSimulator(db_pool)
+    return _digital_twin_simulator

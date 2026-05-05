@@ -6,6 +6,14 @@ from dataclasses import dataclass
 logger = logging.getLogger(__name__)
 
 @dataclass
+class IOC:
+    """Indicator of Compromise extracted from honeypot logs"""
+    value: str
+    type: str  # "ip", "command", "hash", etc.
+    command: str = ""  # For command-type IOCs
+
+
+@dataclass
 class HoneypotDeployment:
     deployment_id: UUID
     threat_id: UUID

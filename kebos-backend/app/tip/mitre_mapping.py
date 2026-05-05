@@ -77,12 +77,14 @@ THREAT_ACTOR_PROFILES = {
     "SilverTerrier": {
         "name": "SilverTerrier",
         "alias": None,
+        "aliases": None,
         "targets": ["Indian corporates", "BEC victims", "Financial services"],
+        "techniques": ["T1566.002", "T1078", "T1071", "T1036"],
         "mitre_techniques": ["T1566.002", "T1078", "T1071", "T1036"],
         "primary_ttps": "Business email compromise, banking trojans, spear-phishing",
         "description": (
-            "Nigerian threat actor group conducting business email compromise (BEC) "
-            "campaigns against Indian corporates and financial institutions. "
+            "Nigerian BEC threat group — a Nigerian threat actor targeting Indian corporates "
+            "and financial institutions via Business Email Compromise. "
             "Deploys banking trojans via spear-phishing. Active since 2014."
         ),
         "region": "India",
@@ -91,12 +93,14 @@ THREAT_ACTOR_PROFILES = {
     "REvil Affiliates": {
         "name": "REvil Affiliates",
         "alias": "Sodinokibi",
+        "aliases": "Sodinokibi",
         "targets": ["Indian SME infrastructure", "Manufacturing", "Healthcare"],
+        "techniques": ["T1486", "T1490", "T1489", "T1059"],
         "mitre_techniques": ["T1486", "T1490", "T1489", "T1059"],
         "primary_ttps": "Ransomware-as-a-service, double extortion, RDP exploitation",
         "description": (
-            "REvil (Sodinokibi) ransomware-as-a-service affiliates targeting Indian "
-            "SME infrastructure for ransomware deployment and double extortion. "
+            "REvil (Sodinokibi) RaaS affiliates targeting Indian SME infrastructure "
+            "for ransomware deployment and double extortion. "
             "Exploits unpatched RDP and phishing for initial access."
         ),
         "region": "India",

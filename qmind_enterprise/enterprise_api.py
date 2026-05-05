@@ -8,19 +8,21 @@ from pqc import _REAL_PQC_AVAILABLE
 import logging
 import os
 import sys
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-# Assert USE_REAL_PQC at startup
+# Validate USE_REAL_PQC at startup — raises RuntimeError (not assert) so it is never optimised away
 USE_REAL_PQC = os.environ.get("USE_REAL_PQC", "false").lower() == "true"
-assert not (USE_REAL_PQC and not _REAL_PQC_AVAILABLE), (
-    "USE_REAL_PQC=true but liboqs is not installed. "
-    "Install liboqs-python or set USE_REAL_PQC=false."
-)
+if USE_REAL_PQC and not _REAL_PQC_AVAILABLE:
+    raise RuntimeError(
+        "USE_REAL_PQC=true but liboqs is not installed. "
+        "Install liboqs-python or set USE_REAL_PQC=false."
+    )
 if not USE_REAL_PQC:
-    logger.critical(
-        "USE_REAL_PQC=false — system is running WITHOUT post-quantum cryptography. "
-        "Do not claim PQC to any customer until this is true."
+    raise RuntimeError(
+        "USE_REAL_PQC=false — post-quantum cryptography is disabled. "
+        "Set USE_REAL_PQC=true and install liboqs-python before deploying."
     )
 
 
@@ -74,15 +76,25 @@ ALLOWED_SOURCES = [
 async def lifespan(app: FastAPI):
     """Lifespan context manager to start/stop Kafka consumer"""
     # Startup
+    print("[LIFESPAN] Starting QMind Enterprise API")
     logger.info("Starting QMind Enterprise API")
     app.state.scorer = SignalScorer()
+    print("[LIFESPAN] Scorer initialized")
     
     # Try to start Kafka consumer, but don't fail if it's unavailable
     try:
+        print("[LIFESPAN] About to call get_consumer()")
         consumer = await get_consumer()
+        print("[LIFESPAN] get_consumer() returned, sleeping 2s")
+        await asyncio.sleep(2)  # Allow partition assignment to complete
+        print("[LIFESPAN] Sleep complete, storing consumer")
         app.state.consumer = consumer
+        print("[LIFESPAN] Kafka consumer started successfully")
         logger.info("Kafka consumer started successfully")
     except Exception as e:
+        print(f"[LIFESPAN] Kafka consumer startup failed: {e}")
+        import traceback
+        traceback.print_exc()
         logger.warning(f"Kafka consumer startup failed (continuing without Kafka): {e}")
         app.state.consumer = None
     
@@ -100,12 +112,13 @@ app = FastAPI(lifespan=lifespan, title="QMind Enterprise API", version="1.0.0")
 @app.get("/health")
 async def health():
     """Health check endpoint"""
+    consumer_running = hasattr(app.state, 'consumer') and app.state.consumer is not None
     return {
         "status": "ok",
         "pqc_enabled": USE_REAL_PQC,
         "feeds_active": 8,
         "service": "qmind-enterprise",
-        "kafka_consumer": "running" if hasattr(app.state, 'consumer') else "stopped"
+        "kafka_consumer": "running" if consumer_running else "stopped"
     }
 
 

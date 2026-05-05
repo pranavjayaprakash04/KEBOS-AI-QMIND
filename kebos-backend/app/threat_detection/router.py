@@ -9,6 +9,7 @@ import asyncpg
 from app.config import settings
 from datetime import datetime
 import logging
+import json
 
 
 # Local ThreatCategory enum (matching qmind_enterprise signal_engine)
@@ -41,7 +42,7 @@ class ThreatCategory:
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/v1/signals", tags=["signals"])
+router = APIRouter(prefix="/api/v1/threats", tags=["threats"])
 
 
 class SignalInjectRequest(BaseModel):
@@ -67,7 +68,112 @@ class SignalInjectResponse(BaseModel):
     kafka_produced: bool
 
 
-@router.post("/inject", response_model=SignalInjectResponse)
+@router.get("/", summary="List threat events for current tenant")
+async def list_threats(
+    status: Optional[str] = None,
+    limit: int = 100,
+    http_request: Request = None,
+    current_user: UserProfile = Depends(get_current_user),
+):
+    """Return all threat events for the authenticated tenant."""
+    from app.main import app
+    if not hasattr(app.state, 'db_pool'):
+        raise HTTPException(status_code=500, detail="Database not available")
+
+    async with app.state.db_pool.acquire() as conn:
+        await conn.execute(
+            "SELECT set_config('app.current_tenant', $1, true)",
+            str(current_user.tenant_id),
+        )
+        where = "WHERE tenant_id = $1"
+        params = [current_user.tenant_id]
+        if status:
+            where += " AND status = $2"
+            params.append(status)
+
+        rows = await conn.fetch(
+            f"""
+            SELECT id, tenant_id, event_type, source_ip, indicator_value,
+                   lead_category, qmind_confidence, category_scores, reversibility,
+                   status, severity, created_at, updated_at
+            FROM threat_events
+            {where}
+            ORDER BY created_at DESC
+            LIMIT {limit}
+            """,
+            *params,
+        )
+
+    results = []
+    for row in rows:
+        results.append({
+            "id": str(row["id"]),
+            "tenant_id": str(row["tenant_id"]),
+            "ioc_value": row["indicator_value"] or "",
+            "ioc_type": row["event_type"] or "unknown",
+            "lead_category": row["lead_category"] or "Benign",
+            "confidence": float(row["qmind_confidence"] or 0.0),
+            "qmind_confidence": float(row["qmind_confidence"] or 0.0),
+            "source": row["source_ip"] or "unknown",
+            "is_proactive": False,
+            "status": row["status"] or "PENDING",
+            "reversibility": row["reversibility"] or "REVERSIBLE",
+            "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+        })
+    return results
+
+
+class ThreatStatusUpdate(BaseModel):
+    status: Literal["BENIGN", "CONFIRMED_THREAT", "PROBABLE_THREAT",
+                    "POSSIBLE_THREAT", "MONITORING", "PENDING",
+                    "ELEVATED", "FALSE_POSITIVE"]
+    analyst_notes: Optional[str] = None
+
+
+@router.patch("/{threat_id}", summary="Update threat status (e.g. mark as benign)")
+async def update_threat_status(
+    threat_id: str,
+    body: ThreatStatusUpdate,
+    current_user: UserProfile = Depends(get_current_user),
+):
+    """Update the status of a threat event (analyst triage action)."""
+    from app.main import app
+    if not hasattr(app.state, 'db_pool'):
+        raise HTTPException(status_code=500, detail="Database not available")
+
+    import uuid as _uuid
+    try:
+        threat_uuid = _uuid.UUID(threat_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid threat_id format")
+
+    async with app.state.db_pool.acquire() as conn:
+        await conn.execute(
+            "SELECT set_config('app.current_tenant', $1, true)",
+            str(current_user.tenant_id),
+        )
+        row = await conn.fetchrow(
+            """
+            UPDATE threat_events
+            SET status = $1, updated_at = NOW()
+            WHERE id = $2 AND tenant_id = $3
+            RETURNING id, status, updated_at
+            """,
+            body.status, threat_uuid, current_user.tenant_id,
+        )
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Threat not found")
+
+    return {
+        "id": str(row["id"]),
+        "status": row["status"],
+        "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+@router.post("/ingest", response_model=SignalInjectResponse)
 async def inject_signal(
     request: SignalInjectRequest,
     http_request: Request,
@@ -88,13 +194,12 @@ async def inject_signal(
     
     Proactive detection badge REQUIRED on ct_log/paste_monitor/domain_monitor/apk_monitor sources.
     """
+    
     # Validate category
-    try:
-        category = ThreatCategory(request.category)
-    except ValueError:
+    if request.category not in ThreatCategory.values():
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid category: {request.category}. Must be one of: {[c.value for c in ThreatCategory]}"
+            detail=f"Invalid category: {request.category}. Must be one of: {ThreatCategory.values()}"
         )
     
     # Validate confidence range
@@ -151,7 +256,9 @@ async def inject_signal(
             catboost_score=catboost_score,
             source=request.source_type,
             tenant_id=current_user.tenant_id,
-            tenant_type=current_user.tenant_type if hasattr(current_user, 'tenant_type') else "enterprise"
+            tenant_type=current_user.tenant_type if hasattr(current_user, 'tenant_type') else "enterprise",
+            confidence=signal_data["confidence"],
+            category=request.category,
         )
         kafka_produced = True
     else:
@@ -162,9 +269,34 @@ async def inject_signal(
     
     # Store in database
     try:
-        # TODO: Implement DB storage
-        # For scaffold, skip
-        pass
+        if hasattr(http_request.app.state, 'db_pool'):
+            async with http_request.app.state.db_pool.acquire() as conn:
+                await conn.execute("""
+                    INSERT INTO threat_events (
+                        id, tenant_id, event_type, source_ip, destination_ip,
+                        severity, status, qmind_confidence, indicator_value,
+                        lead_category, category_scores, reversibility,
+                        created_at, updated_at
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW()
+                    )
+                """, 
+                    __import__('uuid').uuid4(),
+                    current_user.tenant_id,
+                    request.category,
+                    source_ip,
+                    "unknown",
+                    "medium",
+                    "pending",
+                    catboost_score,
+                    request.ioc_value,
+                    request.category,
+                    json.dumps({}),
+                    "REVERSIBLE"
+                )
+                logger.info(f"Stored threat event in database: {request.ioc_value}")
+        else:
+            logger.warning("Database pool not available in app.state")
     except Exception as e:
         logger.error(f"Error storing signal in database: {e}")
         # Continue anyway - Kafka is the primary path

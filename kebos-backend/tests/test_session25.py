@@ -5,8 +5,8 @@ Tests for CEF forwarder, Splunk HEC, enrich endpoint, STIX bundle, threat actor 
 import pytest
 import asyncio
 from unittest.mock import Mock, AsyncMock, patch
-from app.siem_integration.cef_forwarder import cef_forwarder
-from app.siem_integration.splunk_hec import splunk_hec
+from app.siem_integration.cef_forwarder import get_cef_forwarder
+from app.siem_integration.splunk_hec import get_splunk_hec_client
 from app.tip.mitre_mapping import THREAT_ACTOR_PROFILES, get_threat_actor_profile
 
 
@@ -23,7 +23,7 @@ def test_cef_format_produces_valid_cef_string():
         "source": "qmind"
     }
     
-    cef_line = cef_forwarder.format_event(threat_event)
+    cef_line = get_cef_forwarder().format_event(threat_event)
     
     # Verify CEF format starts with correct vendor
     assert cef_line.startswith("CEF:0|Pynevera Technologies|KebosAI|1.0")
@@ -42,8 +42,8 @@ def test_cef_format_produces_valid_cef_string():
 async def test_splunk_hec_skips_when_not_configured():
     """Test Splunk HEC skips when not configured (no HTTP call when token is empty)"""
     # Ensure Splunk HEC is not configured
-    splunk_hec._ready = False
-    splunk_hec.token = ""
+    get_splunk_hec_client()._ready = False
+    get_splunk_hec_client().token = ""
     
     threat_event = {
         "indicator_value": "evil.com",
@@ -58,7 +58,7 @@ async def test_splunk_hec_skips_when_not_configured():
     }
     
     # Should return early without making HTTP call
-    result = await splunk_hec.send_event(threat_event)
+    result = await get_splunk_hec_client().send_event(threat_event)
     
     # Returns None when not configured
     assert result is None

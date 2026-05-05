@@ -22,7 +22,7 @@ class CatBoostThreatEngine:
 
     def __init__(self):
         if self.MODEL_PATH.exists():
-            self.model = CatBoostClassifier()
+            self.model = CatBoostClassifier(random_seed=42)
             self.model.load_model(str(self.MODEL_PATH))
             self._model_loaded = True
         else:

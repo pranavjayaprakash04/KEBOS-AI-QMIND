@@ -8,20 +8,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ninja-build \
     git \
     curl \
+    python3-dev \
+    liblz4-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Build liboqs from source
-RUN git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs && \
-    cd /tmp/liboqs && \
-    mkdir build && cd build && \
-    cmake -GNinja -DOQS_USE_OPENSSL=OFF .. && \
-    ninja && \
-    ninja install && \
-    ldconfig && \
-    rm -rf /tmp/liboqs
+RUN git clone --depth 1 --branch 0.12.0 https://github.com/open-quantum-safe/liboqs.git /tmp/liboqs
 
-# Install liboqs-python
-RUN pip install liboqs-python
+# Stage 1 — Build liboqs shared library
+RUN cmake -S /tmp/liboqs -B /tmp/liboqs/build \
+    -DBUILD_SHARED_LIBS=ON \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DOQS_BUILD_ONLY_LIB=ON \
+    -DOQS_USE_OPENSSL=OFF \
+    && cmake --build /tmp/liboqs/build --parallel $(nproc) \
+    && cmake --install /tmp/liboqs/build \
+    && ldconfig \
+    && rm -rf /tmp/liboqs
+
+# Stage 2 — Force liboqs-python to use the installed .so
+ENV LIBOQS_LIBDIR=/usr/local/lib
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+
+# Install liboqs-python from PyPI but skip the bundled download
+# Pin to 0.9.0 to match liboqs 0.12.0 (version compatibility)
+RUN pip install liboqs-python==0.9.0 --no-binary liboqs-python \
+    || pip install git+https://github.com/open-quantum-safe/liboqs-python.git@0.9.0
+
+# Verify at build time — if this fails, the image fails to build
+RUN python -c "import oqs; kem = oqs.KeyEncapsulation('Kyber768'); print('liboqs OK')"
 
 # Create non-root user
 RUN useradd -m -u 1000 -s /bin/bash qmind

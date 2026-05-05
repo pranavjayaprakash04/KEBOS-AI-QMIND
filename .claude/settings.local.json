@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose exec *)",
+      "Bash(docker compose *)",
+      "Bash(VAULT_TOKEN=dev-root-token docker compose up -d)",
+      "Bash(VAULT_TOKEN=dev-root-token docker compose ps)",
+      "Bash(VAULT_TOKEN=dev-root-token docker compose logs kebos-backend --tail=30)"
+    ]
+  }
+}

@@ -13,7 +13,7 @@ def validate_environment() -> list[str]:
     if settings.ACCESS_TOKEN_EXPIRE_MINUTES > 15:
         errors.append(f"CRITICAL: ACCESS_TOKEN_EXPIRE_MINUTES={settings.ACCESS_TOKEN_EXPIRE_MINUTES}, must be <= 15")
     if not settings.USE_REAL_PQC:
-        errors.append("WARNING: USE_REAL_PQC=false — do NOT claim PQC to any customer")
+        errors.append("CRITICAL: USE_REAL_PQC=false — post-quantum cryptography disabled. Set USE_REAL_PQC=true.")
     if settings.SYSLOG_HOST and not settings.SYSLOG_CA_CERT:
         errors.append("CRITICAL: SYSLOG_CA_CERT required when SYSLOG_HOST is set (TCP+TLS required)")
     # Startup assertions — any CRITICAL error is fatal
@@ -34,7 +34,8 @@ async def check_redis_connectivity() -> bool:
         await client.ping()
         await client.close()
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Redis connectivity check failed: {e}")
         return False
 
 

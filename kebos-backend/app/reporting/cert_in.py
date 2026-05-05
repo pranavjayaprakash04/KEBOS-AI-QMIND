@@ -135,6 +135,9 @@ class CERTInReportGenerator:
             created_at=datetime.now(dt_timezone.utc)
         )
         
+        # Validate required CERT-In fields per S.O. 1374(E)
+        self._validate_cert_in_fields(report)
+        
         # Generate report hash
         report.report_hash = hashlib.sha256(
             report.to_canonical_json().encode()
@@ -152,6 +155,45 @@ class CERTInReportGenerator:
         
         logger.info(f"Generated CERT-In report {report_id} for incident {incident_id}")
         return report
+    
+    def _validate_cert_in_fields(self, report: CERTInReport):
+        """
+        Validate that all required CERT-In fields are present per S.O. 1374(E).
+        Raises ValueError if any required field is missing or invalid.
+        """
+        errors = []
+        
+        # Required fields per CERT-In S.O. 1374(E)
+        if not report.incident_id or report.incident_id == "unknown":
+            errors.append("incident_id is required")
+        
+        if not report.incident_type or report.incident_type == "unknown":
+            errors.append("incident_type is required")
+        
+        if not report.severity:
+            errors.append("severity is required")
+        
+        if not report.affected_assets:
+            errors.append("affected_assets is required")
+        
+        if not report.timeline:
+            errors.append("timeline is required")
+        
+        if not report.iocs:
+            errors.append("iocs is required")
+        
+        if not report.mitigation_steps:
+            errors.append("mitigation_steps is required")
+        
+        # Validate timeline has required timestamps
+        if report.timeline:
+            if "detected" not in report.timeline:
+                errors.append("timeline must include 'detected' timestamp")
+            if "reported" not in report.timeline:
+                errors.append("timeline must include 'reported' timestamp")
+        
+        if errors:
+            raise ValueError(f"CERT-In report validation failed: {', '.join(errors)}")
     
     async def _generate_from_soc_report(self, soc_report: Dict[str, Any]) -> Dict[str, Any]:
         """Generate report sections from SOC report data"""

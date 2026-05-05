@@ -1,21 +1,29 @@
 import logging
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 SEVERITY_MAP = {
-    "CONFIRMED_THREAT": 10, "ELEVATED": 7, "MONITORING": 4, "BENIGN": 1
+    "CONFIRMED_THREAT": 10, "ELEVATED": 7, "MONITORING": 5, "BENIGN": 1
 }
+
+
+def get_tls_syslog_handler():
+    """Return the configured TLS syslog handler, or None if not set up."""
+    try:
+        from app.audit_logger.tls_syslog_handler import app_tls_handler
+        return app_tls_handler
+    except (ImportError, AttributeError):
+        return None
 CATEGORY_DEVICE_EVENT = {
-    "Phishing": "Phishing Domain Detected",
-    "Malware": "Malware Indicator Detected",
-    "C2_Infrastructure": "C2 Infrastructure Detected",
-    "Botnet_IP": "Botnet IP Detected",
-    "Credential_Leak": "Credential Leak Detected",
-    "Supply_Chain": "Supply Chain Compromise Detected",
-    "Insider_Threat": "Insider Threat Signal Detected",
-    "DDoS": "DDoS Activity Detected",
-    "CVE_Exploitation": "CVE Exploitation Detected",
+    "Phishing": "Phishing detected",
+    "Malware": "Malware detected",
+    "C2_Infrastructure": "C2 Infrastructure detected",
+    "Botnet_IP": "Botnet IP detected",
+    "Credential_Leak": "Credential Leak detected",
+    "Supply_Chain": "Supply Chain Compromise detected",
+    "Insider_Threat": "Insider Threat detected",
+    "DDoS": "DDoS Activity detected",
+    "CVE_Exploitation": "CVE Exploitation detected",
     "Benign": "Benign Indicator",
 }
 
@@ -30,13 +38,16 @@ class CEFSyslogForwarder:
         status = threat_event.get("status", "MONITORING")
         sev = SEVERITY_MAP.get(status, 5)
         event_name = CATEGORY_DEVICE_EVENT.get(lead, f"{lead} Detected")
+        mitre = threat_event.get('mitre_techniques', [])
+        mitre_str = ','.join(mitre) if isinstance(mitre, list) else str(mitre)
         return (
-            f"CEF:0|Pynevera Technologies|KebosAI|1.0"
+            f"CEF:0|Pynevera|KebosAI|1.0"
             f"|QMind-{lead}|{event_name}|{sev}"
             f"|src={threat_event.get('source_ip','0.0.0.0')}"
             f" dst={threat_event.get('indicator_value','')}"
-            f" confidence={float(threat_event.get('confidence', 0)):.4f}"
-            f" cs1={','.join(threat_event.get('mitre_techniques', []))}"
+            f" cat={lead}"
+            f" confidence={float(threat_event.get('confidence') or threat_event.get('qmind_confidence', 0)):.3f}"
+            f" cs1={mitre_str}"
             f" cs1Label=MITRETechniques"
             f" cs2={threat_event.get('tenant_id','')}"
             f" cs2Label=TenantID"
@@ -45,21 +56,26 @@ class CEFSyslogForwarder:
             f" msg={event_name} via Kebos AI QMind probabilistic engine"
         )
 
-    async def forward(self, threat_event: dict):
-        """Forward as CEF to configured TLS syslog target."""
-        from app.audit_logger.tls_syslog_handler import app_tls_handler
-        if app_tls_handler is None:
+    async def forward(self, threat_event: dict) -> bool:
+        """Forward as CEF to configured TLS syslog target. Returns True always."""
+        handler = get_tls_syslog_handler()
+        if handler is None:
             logger.debug("CEF forward skipped — TLS syslog not configured (SYSLOG_HOST empty)")
-            return
+            return True
         try:
             cef_line = self.format_event(threat_event)
-            record = logging.LogRecord(
-                name="kebos.cef", level=logging.WARNING,
-                pathname="", lineno=0, msg=cef_line, args=(), exc_info=None
-            )
-            app_tls_handler.emit(record)
+            handler.emit_raw(cef_line)
         except Exception as e:
             logger.error(f"CEF syslog forward failed: {e}")
+        return True
 
 # Singleton
-cef_forwarder = CEFSyslogForwarder()
+_cef_forwarder: CEFSyslogForwarder | None = None
+
+
+def get_cef_forwarder() -> CEFSyslogForwarder:
+    """Get or create the singleton CEFSyslogForwarder instance"""
+    global _cef_forwarder
+    if _cef_forwarder is None:
+        _cef_forwarder = CEFSyslogForwarder()
+    return _cef_forwarder

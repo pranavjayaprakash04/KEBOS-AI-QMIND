@@ -1,0 +1,121 @@
+WINDSURF CASCADE SESSION CHANGES
+Date: 2026-04-28
+Session Type: Fix Sprint v4 - Backend Unhealthy Path
+Backend Status: UNHEALTHY (docker-compose shows "unhealthy")
+
+================================================================================
+FILES CREATED
+================================================================================
+
+1. kebos-frontend/src/hooks/useBackendHealth.ts
+   - Purpose: Health polling hook with 15s interval
+   - Features: Checks /health endpoint, handles timeouts, returns 'healthy' | 'unhealthy' | 'checking'
+   - Status: NEW FILE
+
+2. kebos-frontend/src/components/ServiceUnavailableBanner.tsx
+   - Purpose: Banner component displayed when backend is down
+   - Features: Warning icon, user-friendly message, proper ARIA role
+   - Status: NEW FILE
+
+3. kebos-frontend/src/components/LoadingSpinner.tsx
+   - Purpose: Spinner component for initial health check
+   - Features: Animated spinner, "Connecting..." message
+   - Status: NEW FILE
+
+4. kebos-frontend/src/components/ErrorMessage.tsx
+   - Purpose: Reusable error banner component
+   - Features: Dismissible, user-friendly error display, warning icon
+   - Status: NEW FILE
+
+5. kebos-frontend/src/hooks/useBackendHealth.test.ts
+   - Purpose: Unit tests for useBackendHealth hook
+   - Features: Tests health check, error handling, polling, timeout
+   - Status: NEW FILE
+
+================================================================================
+FILES MODIFIED
+================================================================================
+
+1. kebos-frontend/src/App.tsx
+   - Changes:
+     * Added imports: useBackendHealth, ServiceUnavailableBanner, LoadingSpinner
+     * Added health check hook integration
+     * Added conditional rendering: checking → LoadingSpinner, unhealthy → ServiceUnavailableBanner
+     * Status: MODIFIED
+
+2. kebos-frontend/src/api/apiClient.ts
+   - Changes:
+     * Added ApiError class with status and message properties
+     * Added 30s timeout configuration
+     * Enhanced response interceptor with error mapping:
+       - 408 → Connection timed out
+       - 0 → Network error
+       - 401 → Session expired (redirects to /login)
+       - 403 → Permission denied
+       - 404 → Resource not found
+       - 503 → Service temporarily unavailable
+       - 500+ → Unexpected error
+     * Exported ApiError class
+   - Status: MODIFIED
+
+3. kebos-frontend/src/pages/Dashboard.tsx
+   - Changes:
+     * Added imports: ErrorMessage, ApiError
+     * Added error state: const [error, setError] = useState<string | null>(null)
+     * Updated handleMarkBenign: Uses ApiError message, sets error state
+     * Updated handleApproveAction: Uses ApiError message, sets error state
+     * Added error banner display in JSX
+   - Status: MODIFIED
+
+4. kebos-frontend/src/pages/Cases.tsx
+   - Changes:
+     * Added imports: ErrorMessage, ApiError
+     * Added error state: const [error, setError] = useState<string | null>(null)
+     * Updated handleViewTimeline: Uses ApiError message, sets error state
+     * Updated handleGenerateCertIn: Uses ApiError message, sets error state
+     * Added error banner display in JSX
+   - Status: MODIFIED
+
+5. kebos-frontend/src/pages/Reports.tsx
+   - Changes:
+     * Added imports: ErrorMessage, ApiError
+     * Added error state: const [error, setError] = useState<string | null>(null)
+     * Updated handleDownloadPDF: Uses ApiError message, sets error state
+     * Added error banner display in JSX
+   - Status: MODIFIED
+
+================================================================================
+HANDOFF.md UPDATED
+================================================================================
+
+Added new section: [2026-04-28] WINDSURF SESSION: Fix Sprint v4 - Backend Unhealthy Path
+
+================================================================================
+TASKS DEFERRED (Backend Unhealthy)
+================================================================================
+
+- STEP 2: OpenAPI contract verification
+- TASK 1: Frontend structure and environment variables
+- TASK 2: Auth flow
+- TASK 3: Threat dashboard IOC list
+- TASK 4: CERT-In report UI
+- TASK 5: WebSocket real-time feed
+- TASK 7: Final console error gate
+
+================================================================================
+ACTION REQUIRED FROM CLAUDE CODE
+================================================================================
+
+1. Fix kebos-backend health status in docker-compose (currently shows "unhealthy")
+2. Investigate discrepancy: HTTP /health returns 200 but docker-compose health check fails
+3. Once backend is healthy, Windsurf should run STEP 2 and proceed with Tasks 1-7
+
+================================================================================
+SUMMARY
+================================================================================
+
+Total Files Created: 5
+Total Files Modified: 5
+Total Changes: 10
+
+All changes are safe to deploy without a live backend (offline-graceful UI pattern).
