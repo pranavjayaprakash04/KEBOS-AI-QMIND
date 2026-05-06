@@ -1,6 +1,7 @@
 import axios from 'axios';
+import { useAuthStore } from '../store/authStore';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 class ApiError extends Error {
   status: number;
@@ -29,10 +30,24 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// Response interceptor for error handling
+// Response interceptor for error handling with 401 retry
+let isRefreshing = false;
+let refreshSubscribers: ((token: string) => void)[] = [];
+
+function subscribeTokenRefresh(cb: (token: string) => void) {
+  refreshSubscribers.push(cb);
+}
+
+function onTokenRefreshed() {
+  refreshSubscribers.forEach((cb) => cb('refreshed'));
+  refreshSubscribers = [];
+}
+
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+
     if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
       return Promise.reject(new ApiError(408, 'Connection timed out. Check your network.'));
     }
@@ -42,6 +57,47 @@ apiClient.interceptors.response.use(
     }
 
     const status = error.response.status;
+
+    // Handle 401 with retry for token refresh (except for auth endpoints)
+    if (status === 401 && !originalRequest._retry) {
+      const isAuthEndpoint = originalRequest.url?.includes('/auth/login') ||
+                            originalRequest.url?.includes('/auth/refresh');
+
+      if (isAuthEndpoint) {
+        // Don't retry auth endpoint failures
+        window.location.href = '/login';
+        return Promise.reject(new ApiError(401, 'Session expired. Please log in again.'));
+      }
+
+      originalRequest._retry = true;
+
+      if (!isRefreshing) {
+        isRefreshing = true;
+        try {
+          // Try to refresh token
+          await apiClient.post('/api/v1/auth/refresh');
+          isRefreshing = false;
+          onTokenRefreshed();
+        } catch (refreshError) {
+          isRefreshing = false;
+          refreshSubscribers = [];
+          // Refresh failed - logout and redirect
+          useAuthStore.getState().logout();
+          window.location.href = '/login';
+          return Promise.reject(new ApiError(401, 'Session expired. Please log in again.'));
+        }
+      } else {
+        // Wait for token refresh
+        return new Promise((resolve) => {
+          subscribeTokenRefresh(() => {
+            resolve(apiClient(originalRequest));
+          });
+        });
+      }
+
+      // Retry original request
+      return apiClient(originalRequest);
+    }
 
     if (status === 401) {
       window.location.href = '/login';

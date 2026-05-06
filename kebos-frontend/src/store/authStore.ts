@@ -17,6 +17,7 @@ interface AuthState {
   setAuth: (user: UserProfile) => void;
   logout: () => void;
   rehydrate: () => Promise<void>;
+  refreshToken: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -38,9 +39,23 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       // Call /api/v1/auth/me to rehydrate from HttpOnly cookie
       const response = await apiClient.get('/api/v1/auth/me');
-      set({ isAuthenticated: true, user: response.data.user });
+      set({ isAuthenticated: true, user: response.data });
     } catch (error) {
       set({ isAuthenticated: false, user: null });
+    }
+  },
+
+  refreshToken: async () => {
+    try {
+      // Call /api/v1/auth/refresh to get new token via cookie
+      await apiClient.post('/api/v1/auth/refresh');
+      // After refresh, rehydrate user data
+      const response = await apiClient.get('/api/v1/auth/me');
+      set({ isAuthenticated: true, user: response.data });
+    } catch (error) {
+      // Refresh failed - clear auth state
+      set({ isAuthenticated: false, user: null });
+      throw error;
     }
   },
 }));

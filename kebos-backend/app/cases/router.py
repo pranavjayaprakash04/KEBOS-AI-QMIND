@@ -47,12 +47,20 @@ class CaseApprovalRequest(BaseModel):
     analyst_notes: Optional[str] = None
 
 
+class CreateCaseRequest(BaseModel):
+    """Request to create a new case"""
+    title: str
+    description: str
+    severity: str
+    tenant_id: Optional[str] = None
+
+
 @router.get("/")
 async def list_cases(
     status: Optional[str] = None,
     current_user: UserProfile = Depends(get_current_user)
 ):
-    """List all cases for the current tenant"""
+    """List all cases for the current tenant - returns direct array"""
     from app.main import app
     if not hasattr(app.state, 'db_pool'):
         raise HTTPException(status_code=500, detail="Database not available")
@@ -61,6 +69,45 @@ async def list_cases(
     cases = await case_manager.list_cases(current_user.tenant_id, status)
     
     return cases
+
+
+@router.post("/")
+async def create_case(
+    request: CreateCaseRequest,
+    current_user: UserProfile = Depends(get_current_user)
+):
+    """Create a new case with cert_in_deadline set to NOW() + 6 hours"""
+    from app.main import app
+    if not hasattr(app.state, 'db_pool'):
+        raise HTTPException(status_code=500, detail="Database not available")
+    
+    async with app.state.db_pool.acquire() as conn:
+        # Set RLS tenant context
+        await conn.execute(
+            "SELECT set_config('app.current_tenant', $1, true)",
+            str(current_user.tenant_id),
+        )
+        
+        row = await conn.fetchrow(
+            """
+            INSERT INTO cases (title, description, severity, tenant_id, status, cert_in_deadline, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, 'OPEN', NOW() + INTERVAL '6 hours', NOW(), NOW())
+            RETURNING id, title, description, severity, tenant_id, status, cert_in_deadline, created_at, updated_at
+            """,
+            request.title, request.description, request.severity, current_user.tenant_id
+        )
+    
+    return {
+        "id": str(row["id"]),
+        "title": row["title"],
+        "description": row["description"],
+        "severity": row["severity"],
+        "tenant_id": str(row["tenant_id"]),
+        "status": row["status"],
+        "cert_in_deadline": row["cert_in_deadline"].isoformat() if row["cert_in_deadline"] else None,
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+    }
 
 
 @router.get("/{case_id}")

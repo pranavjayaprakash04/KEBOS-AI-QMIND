@@ -6,10 +6,12 @@ from app.security.headers import SecurityHeadersMiddleware
 from app.auth.router import router as auth_router
 from app.threat_detection.router import router as threats_router
 from app.deception.router import router as honeygrid_router
+from app.deception.trap_manager import router as trap_manager_router
 from app.siem_integration.router import router as siem_router
 from app.nta.router import router as nta_router
 from app.nta.router import vuln_router
 from app.cases.router import router as cases_router
+from app.ueba.router import router as ueba_router
 from app.admin.tenants import router as admin_tenants_router
 from app.reporting.router import router as reporting_router
 from app.threat_detection.qmind_consumer import consume_qmind_results, set_qmind_dependencies, handle_task_error
@@ -22,6 +24,7 @@ from app.crawlers.paste_monitor import get_paste_monitor
 from app.crawlers.domain_monitor import get_domain_monitor
 from app.integrations.dependency_health import get_dependency_health_monitor
 from app.audit_logger.chain import AuditChain
+from app.audit_logger.router import router as audit_router
 from app.audit_logger.tls_syslog_handler import setup_tls_syslog
 from app.threat_detection.kafka_producer import ThreatIndicatorPublisher
 from app.reporting.soc_generator import SOCReportGenerator
@@ -149,7 +152,17 @@ async def lifespan(app: FastAPI):
         qmind_task.add_done_callback(handle_task_error)
         app.state.qmind_consumer = qmind_task
         logger.info("qmind.results consumer registered")
-        
+
+        # Start QMind enrichment consumer (honeypot pipeline)
+        from app.services.qmind_enrichment import run_enrichment_consumer
+        enrichment_task = asyncio.create_task(run_enrichment_consumer(), name="qmind-enrichment-consumer")
+        enrichment_task.add_done_callback(
+            lambda t: logger.error(f"Enrichment consumer crashed: {t.exception()}")
+            if t.exception() else logger.info("Enrichment consumer stopped")
+        )
+        app.state.enrichment_consumer = enrichment_task
+        logger.info("honeypot.interactions enrichment consumer registered")
+
         # Start CERT-In SLA monitor (Phase 3.3)
         cert_in_monitor = get_cert_in_sla_monitor(db_pool)
         await cert_in_monitor.start()
@@ -333,10 +346,13 @@ app.include_router(auth_router)
 app.include_router(nta_router)
 app.include_router(vuln_router)
 app.include_router(honeygrid_router)
+app.include_router(trap_manager_router)
 app.include_router(siem_router)
 app.include_router(cases_router)
+app.include_router(ueba_router)
 app.include_router(admin_tenants_router)
 app.include_router(reporting_router)
+app.include_router(audit_router)
 
 
 @app.websocket("/ws/threats/{tenant_id}")
@@ -344,10 +360,14 @@ async def websocket_threats(websocket: WebSocket, tenant_id: str):
     """WebSocket endpoint for real-time threat updates - requires authentication"""
     # Extract token from query parameter or header
     token = None
-    # Check query parameter first
-    if "token" in websocket.query_params:
+    # Check HttpOnly cookie first (most secure — browser sends automatically)
+    raw_cookie = websocket.cookies.get("access_token")
+    if raw_cookie:
+        token = raw_cookie.removeprefix("Bearer ")
+    # Fall back to query parameter (for WebSocket clients that can't send cookies)
+    elif "token" in websocket.query_params:
         token = websocket.query_params["token"]
-    # Check Authorization header
+    # Check Authorization header last
     elif "authorization" in websocket.headers:
         auth_header = websocket.headers["authorization"]
         if auth_header.startswith("Bearer "):

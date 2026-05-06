@@ -5,6 +5,7 @@ import Cases from './pages/Cases';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import DeceptionLayer from './pages/DeceptionLayer';
 import { useBackendHealth } from './hooks/useBackendHealth';
 import { ServiceUnavailableBanner } from './components/ServiceUnavailableBanner';
 import { LoadingSpinner } from './components/LoadingSpinner';
@@ -41,6 +42,7 @@ const App: React.FC = () => {
             <div className="max-w-7xl mx-auto px-4 py-3">
               <div className="flex gap-2 items-center">
                 <NavLink to="/dashboard" label="Dashboard" />
+                <NavLink to="/deception" label="Deception Layer" />
                 <NavLink to="/cases" label="Cases" />
                 <NavLink to="/reports" label="Reports" />
                 <NavLink to="/settings" label="Settings" />
@@ -59,6 +61,11 @@ const App: React.FC = () => {
           <Route path="/dashboard" element={
             <ProtectedRoute>
               <Dashboard />
+            </ProtectedRoute>
+          } />
+          <Route path="/deception" element={
+            <ProtectedRoute>
+              <DeceptionLayer />
             </ProtectedRoute>
           } />
           <Route path="/cases" element={

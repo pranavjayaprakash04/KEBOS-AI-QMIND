@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { useAuthStore } from '../store/authStore';
 
 type ConnectionStatus = 'connected' | 'polling' | 'disconnected';
 
@@ -19,57 +19,60 @@ export function useWebSocket({
   onDisconnect,
 }: UseWebSocketOptions) {
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
-  const socketRef = useRef<Socket | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 5;
-  const baseReconnectDelay = 1000;
+  const maxReconnectAttempts = 3;
+  const baseReconnectDelay = 5000;
+  useAuthStore();
 
   const connect = () => {
-    if (!enabled || socketRef.current?.connected) return;
+    if (!enabled || wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const socket = io(url, {
-      reconnection: true,
-      reconnectionDelay: baseReconnectDelay,
-      reconnectionAttempts: maxReconnectAttempts,
-    });
+    // Cookie is sent automatically by the browser with the WebSocket upgrade request.
+    // Backend reads auth from the HttpOnly access_token cookie.
+    try {
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
 
-    socketRef.current = socket;
+      ws.onopen = () => {
+        setStatus('connected');
+        reconnectAttemptsRef.current = 0;
+        onConnect?.();
+      };
 
-    socket.on('connect', () => {
-      setStatus('connected');
-      reconnectAttemptsRef.current = 0;
-      onConnect?.();
-    });
+      ws.onclose = () => {
+        setStatus('disconnected');
+        onDisconnect?.();
+      };
 
-    socket.on('disconnect', () => {
-      setStatus('disconnected');
-      onDisconnect?.();
-    });
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setStatus('polling');
+      };
 
-    socket.on('connect_error', () => {
-      setStatus('polling');
-      reconnectAttemptsRef.current++;
-      
-      // Exponential backoff
-      const delay = Math.min(
-        baseReconnectDelay * Math.pow(2, reconnectAttemptsRef.current),
-        30000
-      );
-
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-
-      reconnectTimeoutRef.current = setTimeout(() => {
-        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-          connect();
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onMessage?.(data);
+        } catch {
+          onMessage?.(event.data);
         }
-      }, delay);
-    });
+      };
+    } catch (error) {
+      console.error('WebSocket connection error:', error);
+      setStatus('disconnected');
 
-    if (onMessage) {
-      socket.on('message', onMessage);
+      // Attempt reconnect
+      reconnectAttemptsRef.current++;
+      if (reconnectAttemptsRef.current <= maxReconnectAttempts) {
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+        }
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connect();
+        }, baseReconnectDelay);
+      }
     }
   };
 
@@ -77,8 +80,10 @@ export function useWebSocket({
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
-    socketRef.current?.disconnect();
-    socketRef.current = null;
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
     setStatus('disconnected');
   };
 

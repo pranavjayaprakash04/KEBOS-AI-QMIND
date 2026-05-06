@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Kafka
     KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
     
+    # QMind Enterprise
+    QMIND_URL: str = "http://qmind:8001"
+    
     # Vault
     VAULT_ADDR: str = "http://localhost:8200"
     VAULT_TOKEN: str = ""

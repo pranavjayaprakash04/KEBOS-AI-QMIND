@@ -5,7 +5,7 @@ __pycache__/
 *.env
 *.env.*
 .env
-!.env.local
+.env.local
 *.csv
 *.pkl
 *.mmdb

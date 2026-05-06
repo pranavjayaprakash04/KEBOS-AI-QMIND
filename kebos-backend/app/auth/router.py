@@ -67,6 +67,7 @@ class Fido2AuthenticateRequest(BaseModel):
 
 
 @router.post("/login")
+@limiter.limit("10/minute")
 async def login(
     request: Request,
     login_request: LoginRequest,
@@ -482,6 +483,47 @@ async def get_me(
 ):
     """Get current user from HttpOnly cookie"""
     return current_user
+
+
+@router.post("/refresh")
+async def refresh_token(
+    request: Request,
+    response: Response,
+    auth_service: AuthService = Depends()
+):
+    """Refresh access token — reads token from HttpOnly cookie only"""
+    # Read token from cookie only — do not accept from body or header
+    token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    # Verify the token
+    payload = await auth_service.verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    # Create new token
+    user_profile = UserProfile(
+        id=payload.get("sub"),
+        username=payload.get("username", ""),
+        email=payload.get("email"),
+        role=payload.get("role", ""),
+        tenant_id=payload.get("tenant_id"),
+        tenant_type=payload.get("tenant_type", "enterprise"),
+    )
+    new_token = await auth_service.create_access_token(user_profile)
+    
+    # Set new HttpOnly cookie
+    response.set_cookie(
+        key="access_token",
+        value=f"Bearer {new_token}",
+        httponly=True,
+        samesite="strict",
+        secure=True,
+        max_age=900  # 15 minutes
+    )
+    
+    return {"status": "refreshed"}
 
 
 @router.post("/logout")

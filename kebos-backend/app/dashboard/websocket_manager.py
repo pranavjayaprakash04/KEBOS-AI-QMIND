@@ -36,9 +36,13 @@ class WebSocketManager:
             except Exception as e:
                 logger.warning(f"WebSocket send failed: {e} — marking for removal")
                 dead.append(ws)
-        # Clean up dead connections
         for ws in dead:
             self.disconnect(ws, str(tenant_id))
+
+    async def broadcast(self, data: dict):
+        """Send a JSON message to all connected analyst dashboards across all tenants."""
+        for tenant_id in list(self._connections.keys()):
+            await self.broadcast_to_tenant(tenant_id, data)
 
 # Singleton instance used across the app
 websocket_manager = WebSocketManager()

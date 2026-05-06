@@ -14,6 +14,8 @@ services:
     build: ./kebos-backend
     ports:
       - "8000:8000"
+      - "2222:2222"
+      - "3389:3389"
     networks:
       - frontend-net
       - app-net
@@ -56,6 +58,7 @@ services:
     # read_only: true  # Disabled to allow code volume mount
     tmpfs:
       - /tmp
+    restart: unless-stopped
 
   qmind:
     build: ./qmind_enterprise
@@ -82,6 +85,8 @@ services:
       - no-new-privileges:true
     tmpfs:
       - /tmp
+    restart: unless-stopped
+    restart: unless-stopped
 
   postgres:
     image: timescale/timescaledb:latest-pg16
@@ -249,6 +254,26 @@ services:
         limits:
           memory: 256M
           cpus: '0.5'
+
+  http-trap:
+    build:
+      context: ./kebos-backend
+      dockerfile: Dockerfile
+    command: uvicorn app.deception.traps.http_trap:http_trap_app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    networks:
+      - frontend-net
+    environment:
+      - INFLUXDB_URL=${INFLUXDB_URL}
+      - INFLUXDB_TOKEN=${INFLUXDB_TOKEN}
+      - INFLUXDB_ORG=${INFLUXDB_ORG}
+      - INFLUXDB_BUCKET=${INFLUXDB_BUCKET}
+      - KAFKA_BOOTSTRAP_SERVERS=${KAFKA_BOOTSTRAP_SERVERS}
+    depends_on:
+      - kafka
+      - influxdb
+    restart: unless-stopped
 
 networks:
   frontend-net:
